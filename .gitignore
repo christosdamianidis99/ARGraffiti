@@ -1,0 +1,47 @@
+# --- Unity generated folders (do not commit) ---
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]serSettings/
+MemoryCaptures/
+Recordings/
+sysinfo.txt
+
+# --- Addressables and bundles (rebuildable outputs) ---
+[Aa]sset[Bb]undles/
+Assets/StreamingAssets/aa/*
+
+# --- IDE and project files ---
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.suo
+*.user
+*.unityproj
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- Mobile and tool caches ---
+.gradle/
+*.apk
+*.aab
+*.ipa
+
+# --- JetBrains Rider ---
+.idea/
+*.iml
+
+# --- Crash and profiler data ---
+*.stacktrace
+
+# --- TextMesh Pro generated data (cache) ---
+*.asset.meta.tmp
+
+# --- Collaborate/Plastic SCM leftovers ---
+.collab/
