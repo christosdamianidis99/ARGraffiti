@@ -9,7 +9,6 @@ public class ARDebugHUD : MonoBehaviour
     void OnGUI()
     {
         string s =
-            $"Phase: {controller?.GetCurrentPhaseName()}\n" +
             $"Reticle over plane: {reticle?.isOverAnyPlane}\n" +
             $"Locked plane: {(painter?.lockedPlane ? painter.lockedPlane.trackableId.ToString() : "null")}\n" +
             $"Painting active: {painter?.paintingActive}";
