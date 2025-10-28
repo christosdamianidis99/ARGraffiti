@@ -1,9 +1,7 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
-
-public enum BrushShape { Circle, Square }
 
 [RequireComponent(typeof(ARRaycastManager))]
 public class PhonePainter : MonoBehaviour
@@ -19,32 +17,42 @@ public class PhonePainter : MonoBehaviour
     public BrushShape shape = BrushShape.Circle;
     public Color color = Color.red;
 
-    [Header("State (read-only)")]
-    public bool paintingActive;
+    [Header("AR")]
     public ARPlane lockedPlane;
-
-    // Strict border snapshot (local 2D polygon in plane space)
-    Vector2[] _lockedBoundaryLocal;     // set on lock
-    Transform _lockedPlaneTransform;    // cache transform
-
-    // Stroke/material management
-    public Transform strokesRoot;       // assign StrokesRoot (under XR Origin)
-    Transform _anchorRoot;              // set by controller (ARAnchor.transform)
-    Transform _strokeParent;            // parent for current stroke (child of anchor or strokesRoot)
-
-    ARRaycastManager _rc;
+    ARRaycastManager _raycaster;
     readonly List<ARRaycastHit> _hits = new();
-    Vector3? _lastPos;
 
-    // Base mats copied from prefabs (never mutated)
-    Material _baseCircle, _baseSquare;
-    // Current stroke material (changes when color/shape change)
+    [Header("Stroke Management")]
+    public Transform strokesRoot;
+    Transform _strokeParent;
     Material _strokeMat;
-    bool _newStrokeOnNextDab = true; // force new stroke on start/color/shape
+    bool _newStrokeOnNextDab = true;
+    int _nextLayerIndex = 0;
 
+    [Header("Rendering Layers")]
+    public bool layeredStrokes = true;
+    public float layerEpsilon = 0.0008f; // 0.8 mm
+    Material _baseCircle, _baseSquare;
+
+    [Header("Overwrite Erase")]
+    public bool overwriteErase = false;
+    public float eraseRadiusFactor = 0.55f;
+    LayerMask _paintMask;
+    readonly Collider[] _overlapBuf = new Collider[64];
+
+    [Header("State")]
+    public bool paintingActive;
+    Vector3? _lastPos;
+    readonly List<Material> _ownedMaterials = new();
+    int _paintLayerIndex = -1;
     void Awake()
     {
-        _rc = GetComponent<ARRaycastManager>();
+        _raycaster = GetComponent<ARRaycastManager>();
+        _paintLayerIndex = LayerMask.NameToLayer("Paint");
+        _paintMask = 1 << LayerMask.NameToLayer("Paint");
+
+        if (_paintMask == 0)
+            Debug.LogWarning("[PhonePainter] 'Paint' layer was not found. Overwrite erase will be disabled until you create it (Project Settings → Tags and Layers).");
 
         if (brushDab_CirclePrefab)
         {
@@ -57,124 +65,159 @@ public class PhonePainter : MonoBehaviour
             if (mr) _baseSquare = new Material(mr.sharedMaterial);
         }
     }
+    void OnDestroy()
+    {
+        // Destroy per-stroke materials we created
+        foreach (var m in _ownedMaterials)
+            if (m) Destroy(m);
 
-    // --- Public API ---
-
-    // Strict lock with polygon snapshot (controller passes boundary at selection time)
-    public void LockToPlaneStrict(ARPlane plane, Vector2[] boundaryLocal, Transform anchorRoot)
+        // Destroy our base copies
+        if (_baseCircle) Destroy(_baseCircle);
+        if (_baseSquare) Destroy(_baseSquare);
+    }
+    public void LockToPlane(ARPlane plane)
     {
         lockedPlane = plane;
-        _lockedBoundaryLocal = (boundaryLocal != null && boundaryLocal.Length >= 3) ? boundaryLocal : CopyBoundaryNow(plane);
-        _lockedPlaneTransform = plane.transform;
-        _anchorRoot = anchorRoot; // may be null; then we use strokesRoot directly
         _lastPos = null;
-        _strokeParent = null;
-        _newStrokeOnNextDab = true;
     }
 
     public void ClearLock()
     {
         lockedPlane = null;
-        _lockedBoundaryLocal = null;
-        _lockedPlaneTransform = null;
-        _anchorRoot = null;
         _lastPos = null;
-        _strokeParent = null;
-        _strokeMat = null;
-        _newStrokeOnNextDab = true;
     }
 
-    public void StartPainting() { paintingActive = true; _lastPos = null; _newStrokeOnNextDab = true; }
-    public void StopPainting() { paintingActive = false; _strokeParent = null; }
+    public void StartPainting()
+    {
+        paintingActive = true;
+        _newStrokeOnNextDab = true;
+        _lastPos = null;
+    }
 
-    public void SetBrushSize(float v) { brushSize = Mathf.Clamp(v, 0.02f, 0.2f); }
-    public void SetShapeCircle() { shape = BrushShape.Circle; _newStrokeOnNextDab = true; }
-    public void SetShapeSquare() { shape = BrushShape.Square; _newStrokeOnNextDab = true; }
-    public void SetColor(Color c) { color = c; _newStrokeOnNextDab = true; }
+    public void StopPainting()
+    {
+        paintingActive = false;
+    }
 
-    // --- Main loop ---
+    public void SetBrushSize(float v) => brushSize = Mathf.Clamp(v, 0.02f, 0.2f);
+    public void SetShapeCircle() => shape = BrushShape.Circle;
+    public void SetShapeSquare() => shape = BrushShape.Square;
+
+    public void SetColor(Color c)
+    {
+        color = c;
+        _newStrokeOnNextDab = true; // start new stroke next dab so old color remains
+    }
 
     void Update()
     {
         if (!paintingActive || lockedPlane == null) return;
 
-        var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-        if (_rc.Raycast(center, _hits, TrackableType.PlaneWithinPolygon))
+        Vector2 center = new(Screen.width * 0.5f, Screen.height * 0.5f);
+        if (!_raycaster.Raycast(center, _hits, TrackableType.PlaneWithinPolygon)) return;
+
+        var hit = _hits[0];
+        if (hit.trackableId != lockedPlane.trackableId) return;
+
+        var n = hit.pose.up;
+        var pos = hit.pose.position;
+
+        if (_lastPos == null || Vector3.Distance(_lastPos.Value, pos) >= spacing)
         {
-            var hit = _hits[0];
-            if (hit.trackableId != lockedPlane.trackableId) return;
+            EnsureStrokeParentAndMaterial();
 
-            // STRICT BORDER: check inside initial polygon
-            if (_lockedBoundaryLocal != null && _lockedBoundaryLocal.Length >= 3)
+            var meta = _strokeParent.GetComponent<StrokeMeta>();
+            float lift = meta ? meta.liftOffset : liftFromPlane;
+
+            if (overwriteErase)
+                RemoveUnderlyingDabs(pos + n * lift, brushSize * eraseRadiusFactor);
+
+            var prefab = shape == BrushShape.Square ? brushDab_SquarePrefab : brushDab_CirclePrefab;
+            if (!prefab) return;
+
+            var dab = Instantiate(prefab, pos + n * lift, Quaternion.identity, _strokeParent);
+            dab.transform.forward = n;
+            dab.transform.localScale = Vector3.one * brushSize;
+
+            // Assign Paint layer only if valid
+            if (_paintLayerIndex >= 0) dab.layer = _paintLayerIndex;
+
+            // Collider
+            var col = dab.GetComponent<Collider>();
+            if (!col)
             {
-                var local = _lockedPlaneTransform.InverseTransformPoint(hit.pose.position);
-                var p2 = new Vector2(local.x, local.z);
-                if (!PointInPolygon(p2, _lockedBoundaryLocal)) return;
+                var sc = dab.AddComponent<SphereCollider>();
+                sc.isTrigger = true;
+                // Effective world radius should ≈ brushSize * 0.5
+                // Because localScale = brushSize, set base radius to 0.5 so world radius matches.
+                sc.radius = 0.5f;
             }
+            else col.isTrigger = true;
 
-            var n = hit.pose.up;
-            var pos = hit.pose.position + n * liftFromPlane;
 
-            if (_lastPos == null || Vector3.Distance(_lastPos.Value, pos) >= spacing)
-            {
-                EnsureStrokeParentAndMaterial(); // creates new stroke & material if needed
+            var mr = dab.GetComponentInChildren<MeshRenderer>();
+            if (mr && meta && meta.strokeMaterial)
+                mr.material = meta.strokeMaterial;
 
-                var prefab = (shape == BrushShape.Square) ? brushDab_SquarePrefab : brushDab_CirclePrefab;
-                if (!prefab) return;
-
-                var dab = Instantiate(prefab, pos, Quaternion.identity, _strokeParent);
-                dab.transform.forward = n;
-                dab.transform.localScale = Vector3.one * brushSize;
-
-                var mr = dab.GetComponentInChildren<MeshRenderer>();
-                if (mr && _strokeMat) mr.material = _strokeMat; // assign THIS stroke's mat
-
-                _lastPos = pos;
-            }
+            _lastPos = pos;
         }
     }
-
-    // --- Internals ---
 
     void EnsureStrokeParentAndMaterial()
     {
         if (_strokeParent == null || _newStrokeOnNextDab)
         {
-            // New stroke parent under anchor or strokesRoot
-            var root = _anchorRoot != null ? _anchorRoot : strokesRoot;
+            var root = strokesRoot ? strokesRoot : transform;
             var go = new GameObject($"Stroke_{shape}_{ColorUtility.ToHtmlStringRGB(color)}");
             _strokeParent = go.transform;
-            if (root) _strokeParent.SetParent(root, worldPositionStays: false);
+            _strokeParent.SetParent(root, false);
 
-            // New material instance for THIS stroke only
             var baseMat = (shape == BrushShape.Square) ? _baseSquare : _baseCircle;
             _strokeMat = baseMat ? new Material(baseMat) : null;
-            if (_strokeMat) _strokeMat.color = color;
+            if (_strokeMat)
+            {
+                _ownedMaterials.Add(_strokeMat);           // track for destruction
+                _strokeMat.color = color;
+                int rq = 3000 + Mathf.Clamp(_nextLayerIndex, 0, 500);
+                _strokeMat.renderQueue = rq;
+            }
 
+
+            var meta = go.AddComponent<StrokeMeta>();
+            meta.layerIndex = layeredStrokes ? _nextLayerIndex : 0;
+            meta.liftOffset = layeredStrokes ? (liftFromPlane + meta.layerIndex * layerEpsilon) : liftFromPlane;
+            meta.strokeMaterial = _strokeMat;
+
+            if (layeredStrokes) _nextLayerIndex++;
             _newStrokeOnNextDab = false;
         }
     }
 
-    static Vector2[] CopyBoundaryNow(ARPlane plane)
+    void RemoveUnderlyingDabs(Vector3 worldPos, float radius)
     {
-        var nat = plane.boundary;
-        if (!nat.IsCreated || nat.Length < 3) return null;
-        var arr = new Vector2[nat.Length];
-        for (int i = 0; i < nat.Length; i++) arr[i] = nat[i];
-        return arr;
-    }
+        if (_paintMask == 0) return;
 
-    // Standard point-in-polygon
-    static bool PointInPolygon(Vector2 p, Vector2[] poly)
-    {
-        bool inside = false;
-        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        int count = Physics.OverlapSphereNonAlloc(worldPos, radius, _overlapBuf, _paintMask, QueryTriggerInteraction.Collide);
+        if (count <= 0) return;
+
+        var curStroke = _strokeParent ? _strokeParent.GetComponent<StrokeMeta>() : null;
+        int curLayer = curStroke ? curStroke.layerIndex : int.MaxValue;
+
+        for (int i = 0; i < count; i++)
         {
-            var pi = poly[i]; var pj = poly[j];
-            bool intersect = ((pi.y > p.y) != (pj.y > p.y)) &&
-                             (p.x < (pj.x - pi.x) * (p.y - pi.y) / ((pj.y - pi.y) + 1e-6f) + pi.x);
-            if (intersect) inside = !inside;
+            var h = _overlapBuf[i];
+            if (!h) continue;
+
+            var go = h.transform.gameObject;
+            if (_strokeParent && go.transform.parent == _strokeParent) continue;
+
+            var otherStroke = go.transform.parent ? go.transform.parent.GetComponent<StrokeMeta>() : null;
+            int otherLayer = otherStroke ? otherStroke.layerIndex : -1;
+
+            if (otherLayer <= curLayer)
+                Destroy(go);
         }
-        return inside;
     }
 }
+
+public enum BrushShape { Circle, Square }

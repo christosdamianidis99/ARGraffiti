@@ -9,40 +9,48 @@ public enum Phase { Idle, Scanning, PlaneSelected, Painting }
 public class AppStateControllerPhone : MonoBehaviour
 {
     [Header("AR")]
-    public ARSession arSession;                 // assign
-    public ARPlaneManager planeManager;         // assign (XR Origin)
-    public ARRaycastManager raycaster;          // assign (XR Origin)
-    public ARAnchorManager anchorManager;       // assign (XR Origin)
-    public ARCameraManager cameraManager;       // assign (Main Camera)
-    public ReticleDot reticle;                  // assign (XR Origin)
-    public PhonePainter painter;                // assign (XR Origin)
+    public ARSession arSession;                 // (assign) AR Session in scene
+    public ARPlaneManager planeManager;         // (assign) on XR Origin
+    public ARRaycastManager raycaster;          // (assign) on XR Origin
+    public ARAnchorManager anchorManager;       // (assign) on XR Origin
+    public ARCameraManager cameraManager;       // (assign) on Main Camera
+    public ReticleDot reticle;                  // (assign) on XR Origin
+    public PhonePainter painter;                // (assign) on XR Origin
 
     [Header("UI")]
-    public Button btnScan;
-    public Button btnSelectSurface;
-    public Button btnGraffiti;
-    public Button btnReselect;
-    public GameObject panelTools;
-    public TMPro.TMP_Text txtTips; // optional
+    public Button btnScan;                      // Panel_Top/Button_Scan
+    public Button btnSelectSurface;             // Panel_Top/Button_SelectSurface
+    public Button btnGraffiti;                  // Panel_Top/Button_Graffiti
+    public Button btnReselect;                  // Panel_Top/Button_Reselect
+    public GameObject panelTools;               // Panel_Tools
+    public TMPro.TMP_Text txtTips;              // optional tips label
 
     [Header("Painting")]
-    public Transform strokesRoot;               // assign (StrokesRoot)
+    public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
+
+    // State
+    Phase _phase = Phase.Idle;
     ARAnchor _currentAnchor;
 
-    // Single-plane scanning
+    // Single-plane scanning (one plane that grows)
     ARPlane _primaryScanPlane;
     double _reticleStableStart = -1;
-    const double STABLE_DWELL_SECONDS = 0.20;    // 200ms dwell to avoid flicker
+    const double STABLE_DWELL_SECONDS = 0.20;   // 200 ms stability before choosing primary
+    public PlaneQualityFilter planeFilter;   // (assign) on XR Origin
 
-    // Frozen outline after selection
+    // Frozen outline after selection (non-resizing)
     GameObject _frozenBorderGO;
-    public float frozenLineWidth = 0.01f;
+    public float frozenLineWidth = 0.01f;       // 1 cm
     public Color frozenLineColor = new Color(0f, 1f, 0.8f, 0.9f);
 
-    Phase _phase = Phase.Idle;
-
-    void OnEnable() { if (planeManager) planeManager.planesChanged += OnPlanesChanged; }
-    void OnDisable() { if (planeManager) planeManager.planesChanged -= OnPlanesChanged; }
+    void OnEnable()
+    {
+        if (planeManager) planeManager.planesChanged += OnPlanesChanged;
+    }
+    void OnDisable()
+    {
+        if (planeManager) planeManager.planesChanged -= OnPlanesChanged;
+    }
 
     void Awake()
     {
@@ -53,11 +61,9 @@ public class AppStateControllerPhone : MonoBehaviour
         SetPhase(Phase.Idle);
     }
 
-    // ------------------- Phases -------------------
-
+    // ========================= PHASES =========================
     IEnumerator RescanRoutine()
     {
-        // performance: make sure autofocus is on
         if (cameraManager) cameraManager.autoFocusRequested = true;
 
         painter.StopPainting(); painter.ClearLock();
@@ -73,7 +79,6 @@ public class AppStateControllerPhone : MonoBehaviour
         _primaryScanPlane = null;
         _reticleStableStart = -1;
 
-        // reset AR (cleans planes)
         if (arSession) arSession.Reset();
         yield return null;
 
@@ -81,8 +86,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
 
-
-        // **Hide all initially** (no clutter). We’ll show only the chosen one.
+        // hide all until we pick a primary plane
         TogglePlaneMesh(false);
     }
 
@@ -106,19 +110,17 @@ public class AppStateControllerPhone : MonoBehaviour
 
             case Phase.Scanning:
                 if (planeManager) planeManager.enabled = true;
-                // meshes hidden until we lock a primary
                 _primaryScanPlane = null;
                 _reticleStableStart = -1;
+                TogglePlaneMesh(false);
                 SetTip("Move phone. Center dot turns green over a surface.");
                 break;
 
             case Phase.PlaneSelected:
-                // hard lock: stop detection
-                planeManager.requestedDetectionMode = PlaneDetectionMode.None;
+                planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
 
-                // hide all dynamic meshes; draw frozen border only
-                TogglePlaneMesh(false);
-                BuildFrozenBorder();
+                TogglePlaneMesh(false);   // hide dynamic meshes
+                BuildFrozenBorder();      // show frozen outline
                 if (panelTools) panelTools.SetActive(true);
                 btnReselect.gameObject.SetActive(true);
                 btnGraffiti.interactable = true;
@@ -131,7 +133,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnReselect.gameObject.SetActive(true);
                 btnGraffiti.interactable = true;
                 painter.StartPainting();
-                SetTip("Graffiti ON. Keep the dot on the surface and move phone.");
+                SetTip("Graffiti ON. Keep the dot on the surface and move the phone.");
                 break;
         }
 
@@ -140,12 +142,21 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void Update()
     {
-        if (_phase != Phase.Scanning || reticle == null) return;
+        if (_phase != Phase.Scanning) return;
 
-        // Only enable "Select Surface" when dot is over *some* plane
-        btnSelectSurface.interactable = reticle.isOverAnyPlane;
+        // Only enable Select when the filter says we have a stable, vetted plane
+        if (planeFilter)
+            btnSelectSurface.interactable = planeFilter
+                   ? planeFilter.PrimaryIsStable()
+                   : (reticle && reticle.isOverAnyPlane);
+        else
+            btnSelectSurface.interactable = reticle && reticle.isOverAnyPlane; // fallback if filter not assigned
 
-        // We want just ONE plane during scan: pick it when the dot is stably over a plane for 200ms
+        //if (_phase != Phase.Scanning || reticle == null) return;
+
+        
+
+        // Choose ONE primary plane after a short stable dwell
         if (_primaryScanPlane == null)
         {
             if (reticle.isOverAnyPlane && reticle.planeUnderReticle != null)
@@ -156,14 +167,12 @@ public class AppStateControllerPhone : MonoBehaviour
                 {
                     _primaryScanPlane = GetRootPlane(reticle.planeUnderReticle);
 
-                    // Optional: restrict detection to the alignment we just found (reduces noise & boosts perf)
+                    // Reduce noise: restrict detection to this alignment
                     var align = _primaryScanPlane.alignment;
                     planeManager.requestedDetectionMode =
                         (align == PlaneAlignment.HorizontalUp || align == PlaneAlignment.HorizontalDown)
-                        ? PlaneDetectionMode.Horizontal
-                        : PlaneDetectionMode.Vertical;
-
-                    ShowOnlyPlane(_primaryScanPlane);
+                        ? PlaneDetectionMode.Horizontal : PlaneDetectionMode.Vertical;
+            ShowOnlyPlane(_primaryScanPlane);
                     SetTip("Move phone to grow this surface. Then press Select Surface.");
                 }
             }
@@ -174,7 +183,7 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         else
         {
-            // keep only the primary visible; if it gets merged, follow root
+            // Keep following merges (subsumed) to avoid flicker
             var root = GetRootPlane(_primaryScanPlane);
             if (root != _primaryScanPlane)
             {
@@ -184,19 +193,25 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    // ------------------- Selection / Anchor -------------------
-
+    // ========================= SELECTION / ANCHOR =========================
     void SelectSurfaceUnderReticle()
     {
         if (!reticle) return;
 
-        // Use the chosen primary if available, else the current plane under reticle
-        var plane = _primaryScanPlane != null ? _primaryScanPlane : reticle.planeUnderReticle;
+        ARPlane plane = null;
+        if (planeFilter && planeFilter.PrimaryIsStable())
+            plane = planeFilter.PrimaryPlane;
+
+        // Fallback: reticle plane if filter not ready
+        if (!plane && reticle) plane = reticle.planeUnderReticle;
         if (!plane) return;
 
         plane = GetRootPlane(plane);
         reticle.selectedPlane = plane;
 
+       
+
+        // Anchor at the last center-hit pose for stability
         DestroyAnchorIfAny();
         if (anchorManager && raycaster)
         {
@@ -204,12 +219,22 @@ public class AppStateControllerPhone : MonoBehaviour
             _currentAnchor = anchorManager.AttachAnchor(plane, pose);
         }
 
+        // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
         var anchorRoot = _currentAnchor ? _currentAnchor.transform : null;
         painter.strokesRoot = strokesRoot;
-        painter.LockToPlaneStrict(plane, boundary, anchorRoot);
+        // If you use the "strict polygon" version of PhonePainter, call LockToPlaneStrict:
+        // painter.LockToPlaneStrict(plane, boundary, anchorRoot);
+        // If you use the simpler version, just lock the plane:
+        painter.LockToPlane(plane);
 
         SetPhase(Phase.PlaneSelected);
+    }
+
+    void ToggleGraffiti()
+    {
+        if (_phase == Phase.Painting) { painter.StopPainting(); SetPhase(Phase.PlaneSelected); }
+        else if (_phase == Phase.PlaneSelected) { SetPhase(Phase.Painting); }
     }
 
     void Reselect()
@@ -225,25 +250,18 @@ public class AppStateControllerPhone : MonoBehaviour
 
         _primaryScanPlane = null;
         _reticleStableStart = -1;
-        TogglePlaneMesh(false); // hidden until we pick a primary again
+        TogglePlaneMesh(false); // hidden until primary chosen again
     }
 
-    // ------------------- Plane events/visuals -------------------
-
+    // ========================= PLANE EVENTS/VISUALS =========================
     void OnPlanesChanged(ARPlanesChangedEventArgs args)
     {
         if (_phase != Phase.Scanning) return;
 
-        // keep non-primary meshes hidden
         if (_primaryScanPlane)
-        {
             ShowOnlyPlane(_primaryScanPlane);
-        }
         else
-        {
-            // before we pick primary: keep everything hidden (no clutter)
-            TogglePlaneMesh(false);
-        }
+            TogglePlaneMesh(false); // before primary: keep all hidden
     }
 
     ARPlane GetRootPlane(ARPlane p)
@@ -251,16 +269,17 @@ public class AppStateControllerPhone : MonoBehaviour
         while (p && p.subsumedBy != null) p = p.subsumedBy;
         return p;
     }
-
     void ShowOnlyPlane(ARPlane planeToShow)
     {
+        var targetRoot = GetRootPlane(planeToShow);
         foreach (var p in planeManager.trackables)
         {
             var mr = p.GetComponent<MeshRenderer>();
             if (!mr) continue;
-            mr.enabled = (p == planeToShow);
+            mr.enabled = (GetRootPlane(p) == targetRoot);
         }
     }
+
 
     void TogglePlaneMesh(bool visible)
     {
@@ -271,7 +290,7 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    // Build a non-resizing outline from the snapshot boundary
+    // Build a non-resizing outline (LineRenderer) from the snapshot boundary
     void BuildFrozenBorder()
     {
         DestroyFrozenBorder();
@@ -291,6 +310,11 @@ public class AppStateControllerPhone : MonoBehaviour
         lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
         lr.material.color = frozenLineColor;
 
+        // Optional: reduce overdraw/shadows
+        lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        lr.receiveShadows = false;
+
+
         lr.positionCount = boundary.Length;
         for (int i = 0; i < boundary.Length; i++)
             lr.SetPosition(i, new Vector3(boundary[i].x, 0f, boundary[i].y));
@@ -302,8 +326,7 @@ public class AppStateControllerPhone : MonoBehaviour
         _frozenBorderGO = null;
     }
 
-    // ------------------- Helpers -------------------
-
+    // ========================= HELPERS =========================
     static Vector2[] CopyBoundary(ARPlane plane)
     {
         var nat = plane.boundary;
@@ -323,23 +346,6 @@ public class AppStateControllerPhone : MonoBehaviour
     }
 
     void SetTip(string s) { if (txtTips) txtTips.text = s; }
-    // Inside AppStateControllerPhone (same class that wires the buttons)
-    void ToggleGraffiti()
-    {
-        if (_phase == Phase.Painting)
-        {
-            // turn OFF
-            painter.StopPainting();
-            SetPhase(Phase.PlaneSelected);
-        }
-        else if (_phase == Phase.PlaneSelected)
-        {
-            // turn ON
-            SetPhase(Phase.Painting);
-        }
-        // If you style the button, SetPhase already updates the look;
-        // if you prefer, you can explicitly restyle here too.
-    }
 
     void StyleGraffitiButton(bool on)
     {

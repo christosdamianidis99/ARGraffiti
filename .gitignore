@@ -45,3 +45,10 @@ Thumbs.db
 
 # --- Collaborate/Plastic SCM leftovers ---
 .collab/
+
+# Unity temporary build folders
+.utmp/
+ARGraffiti_BurstDebugInformation_DoNotShip/
+
+# Unity upgrade log
+UpgradeLog.htm

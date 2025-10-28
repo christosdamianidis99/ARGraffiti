@@ -12,6 +12,12 @@ public class PlaneBorderVisualizer : MonoBehaviour
     LineRenderer _lr;
     readonly List<Vector3> pts = new();
 
+    void Start()
+    {
+        // draw once immediately
+        OnBoundary(default);
+    }
+
     void Awake()
     {
         _plane = GetComponent<ARPlane>();
@@ -22,8 +28,11 @@ public class PlaneBorderVisualizer : MonoBehaviour
             var m = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
             m.color = lineColor; _lr.material = m;
         }
+        _lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        _lr.receiveShadows = false;
         _plane.boundaryChanged += OnBoundary;
     }
+
     void OnDestroy() => _plane.boundaryChanged -= OnBoundary;
 
     void OnBoundary(ARPlaneBoundaryChangedEventArgs e)
