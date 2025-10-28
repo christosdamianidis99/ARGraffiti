@@ -294,29 +294,59 @@ public class AppStateControllerPhone : MonoBehaviour
     void BuildFrozenBorder()
     {
         DestroyFrozenBorder();
-        var plane = reticle.selectedPlane;
+        var plane = reticle.selectedPlane; // The plane data is still needed
         if (!plane) return;
 
         var boundary = CopyBoundary(plane);
         if (boundary == null || boundary.Length < 3) return;
 
         _frozenBorderGO = new GameObject("FrozenPlaneBorder");
-        _frozenBorderGO.transform.SetParent(plane.transform, worldPositionStays: false);
+
+        // Parent to the anchor if it exists
+        Transform parentTransform = _currentAnchor ? _currentAnchor.transform : plane.transform;
+        _frozenBorderGO.transform.SetParent(parentTransform, worldPositionStays: false);
+
+        // If parenting to the anchor, set the local position/rotation
+        if (_currentAnchor)
+        {
+            // Get world poses
+            Pose planePoseInWorld = new Pose(plane.transform.position, plane.transform.rotation);
+            Pose anchorPoseInWorld = new Pose(_currentAnchor.transform.position, _currentAnchor.transform.rotation);
+
+            // Calculate inverse of anchor pose MANUALLY
+            Quaternion invAnchorRot = Quaternion.Inverse(anchorPoseInWorld.rotation);
+            Vector3 invAnchorPos = invAnchorRot * -anchorPoseInWorld.position;
+            Pose inverseAnchorPose = new Pose(invAnchorPos, invAnchorRot);
+
+            // Now transform the plane's world pose into the anchor's local space
+            Pose planePoseInAnchorSpace = inverseAnchorPose.Multiply(planePoseInWorld); // PoseUtils.Multiply equivalent
+
+            _frozenBorderGO.transform.localPosition = planePoseInAnchorSpace.position;
+            _frozenBorderGO.transform.localRotation = planePoseInAnchorSpace.rotation;
+        }
+        // If not parenting to anchor (fallback), no local adjustment needed as it's directly under plane
 
         var lr = _frozenBorderGO.AddComponent<LineRenderer>();
-        lr.useWorldSpace = false;
+        lr.useWorldSpace = false; // Points are relative to the parent
         lr.loop = true;
         lr.widthMultiplier = frozenLineWidth;
-        lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+
+        // Use a default material or load one (as suggested previously)
+        lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit")); // Or load your M_Border_Unlit
         lr.material.color = frozenLineColor;
 
-        // Optional: reduce overdraw/shadows
-        lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        lr.receiveShadows = false;
+        // Add start/end color keys for consistent color (optional but good practice)
+        var gradient = new Gradient();
+        gradient.SetKeys(
+            new GradientColorKey[] { new GradientColorKey(frozenLineColor, 0.0f), new GradientColorKey(frozenLineColor, 1.0f) },
+            new GradientAlphaKey[] { new GradientAlphaKey(frozenLineColor.a, 0.0f), new GradientAlphaKey(frozenLineColor.a, 1.0f) }
+        );
+        lr.colorGradient = gradient;
 
 
         lr.positionCount = boundary.Length;
         for (int i = 0; i < boundary.Length; i++)
+            // Points are relative to the plane's local coords, now the GO's local coords
             lr.SetPosition(i, new Vector3(boundary[i].x, 0f, boundary[i].y));
     }
 
@@ -347,11 +377,34 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void SetTip(string s) { if (txtTips) txtTips.text = s; }
 
-    void StyleGraffitiButton(bool on)
+void StyleGraffitiButton(bool on)
     {
+        // Option 1: Still tint Image (simple)
         var img = btnGraffiti.GetComponent<Image>();
+        if (img) img.color = on ? new Color(0.08f, 0.8f, 0.4f, 0.9f) : new Color(1f, 1f, 1f, 0.25f); // Keep your colors or adjust
+
+        // Option 2: Change Text (as before)
         var txt = btnGraffiti.GetComponentInChildren<TMPro.TMP_Text>();
-        if (img) img.color = on ? new Color(0.08f, 0.8f, 0.4f, 0.9f) : new Color(1f, 1f, 1f, 0.25f);
-        if (txt) txt.text = on ? "Graffiti  (ON)" : "Graffiti";
+        if (txt) txt.text = on ? "Graffiti (ON)" : "Graffiti";
+
+        // Option 3: Trigger Animation (if using Animator transition)
+        var animator = btnGraffiti.GetComponent<Animator>();
+        if (animator)
+        {
+            // Assumes you have Boolean parameters named "IsOn" or similar in your Animator Controller
+             animator.SetBool("IsOn", on);
+             // Or trigger specific states
+             // animator.Play(on ? "GraffitiOnState" : "GraffitiOffState");
+        }
+    }
+}
+public static class PoseUtils
+{
+    public static Pose Multiply(this Pose lhs, Pose rhs)
+    {
+        return new Pose(
+            lhs.position + lhs.rotation * rhs.position,
+            lhs.rotation * rhs.rotation
+        );
     }
 }
