@@ -92,6 +92,8 @@ public class PhonePainter : MonoBehaviour
         paintingActive = true;
         _newStrokeOnNextDab = true;
         _lastPos = null;
+        // Ensure brushSize is current (it should already be synced from UI, but make sure)
+        // brushSize is already set via SetBrushSize() from ToolUIController's sizeSlider
     }
 
     public void StopPainting()
@@ -137,6 +139,8 @@ public class PhonePainter : MonoBehaviour
 
             var dab = Instantiate(prefab, pos + n * lift, Quaternion.identity, _strokeParent);
             dab.transform.forward = n;
+            // Use current brushSize value - ensure it matches the UI slider value
+            // This is updated in real-time via SetBrushSize() from ToolUIController
             dab.transform.localScale = Vector3.one * brushSize;
 
             // Assign Paint layer only if valid
