@@ -32,6 +32,9 @@ public class PanelGraffitiLayout : MonoBehaviour
     private CanvasScaler canvasScaler;
     private int lastScreenWidth;
     private int lastScreenHeight;
+#if UNITY_EDITOR
+    private bool isAdjustmentPending = false; // Flag to prevent duplicate calls
+#endif
 
     void Awake()
     {
@@ -57,16 +60,36 @@ public class PanelGraffitiLayout : MonoBehaviour
     void Reset()
     {
         // When component is added or reset, delay position adjustment
-        EditorApplication.delayCall += AdjustButtonPositions;
+        // Reset flag when component is reset
+        isAdjustmentPending = false;
+        ScheduleAdjustment();
     }
 
     void OnEnable()
     {
         // In editor mode, also adjust position when component is enabled
-        if (!Application.isPlaying)
+        // Note: OnEnable is called after Reset, so we check flag to avoid duplicate calls
+        if (!Application.isPlaying && !isAdjustmentPending)
         {
-            EditorApplication.delayCall += AdjustButtonPositions;
+            ScheduleAdjustment();
         }
+    }
+
+    /// <summary>
+    /// Schedule a delayed adjustment to avoid duplicate calls
+    /// </summary>
+    void ScheduleAdjustment()
+    {
+        if (isAdjustmentPending) return; // Already scheduled
+        
+        isAdjustmentPending = true;
+        EditorApplication.delayCall += () => {
+            isAdjustmentPending = false; // Reset flag when called
+            if (this != null && gameObject != null)
+            {
+                AdjustButtonPositions();
+        }
+        };
     }
 #endif
 
@@ -87,7 +110,7 @@ public class PanelGraffitiLayout : MonoBehaviour
         else
         {
             // Also adjust in editor mode
-            EditorApplication.delayCall += AdjustButtonPositions;
+            ScheduleAdjustment();
         }
 #endif
     }
@@ -106,6 +129,19 @@ public class PanelGraffitiLayout : MonoBehaviour
 
     void AdjustButtonPositions()
     {
+        // Check if this object still exists (important for editor delayCall)
+        // Unity's == operator is overloaded for MonoBehaviour, so we check gameObject
+        if (this == null || gameObject == null)
+        {
+            return;
+        }
+
+        // Check if transform is still valid
+        if (transform == null)
+        {
+            return;
+        }
+
         if (!buttonPaintBrush || !buttonGraffiti || !buttonColorPalette)
         {
             Debug.LogWarning("PanelGraffitiLayout: Button references not set!");
@@ -201,10 +237,11 @@ public class PanelGraffitiLayout : MonoBehaviour
     void OnValidate()
     {
         // In editor, automatically adjust position when values change (whether running or not)
-        if (buttonPaintBrush && buttonGraffiti && buttonColorPalette)
+        // OnValidate is called frequently (on every value change), so we use ScheduleAdjustment
+        // to batch multiple changes into a single adjustment call
+        if (buttonPaintBrush && buttonGraffiti && buttonColorPalette && gameObject != null)
         {
-            // Delay execution to ensure all references are updated
-            EditorApplication.delayCall += AdjustButtonPositions;
+            ScheduleAdjustment();
         }
     }
 #endif

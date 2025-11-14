@@ -30,7 +30,10 @@ public class GraffitiButtonLongPress : MonoBehaviour
     private PhonePainter painter;
     private float pointerDownTime = 0f;
     private bool hasLongPressed = false;
-
+    
+    [Header("Panel Reference")]
+    [Tooltip("PanelGraffitiOptions panel, show/hide when button is clicked")]
+    public GameObject panelGraffitiOptions;
     void Awake()
     {
         rectTransform = GetComponent<RectTransform>();
@@ -79,6 +82,41 @@ public class GraffitiButtonLongPress : MonoBehaviour
             {
                 Debug.LogWarning("GraffitiButtonLongPress: PhonePainter not found in Start!");
             }
+        }
+        
+        // Find PanelGraffitiOptions if not assigned
+        // Priority: find child object first, then search entire scene
+        if (panelGraffitiOptions == null)
+        {
+            // First try to find child object
+            Transform childPanel = transform.Find("PanelGraffitiOptions");
+            if (childPanel != null)
+            {
+                panelGraffitiOptions = childPanel.gameObject;
+            }
+            else
+            {
+                // If not found in child, search entire scene (compatible with old names)
+                panelGraffitiOptions = GameObject.Find("PanelGraffitiOptions");
+                if (panelGraffitiOptions == null)
+                {
+                    panelGraffitiOptions = GameObject.Find("PanelGraffitiOptions");
+                    if (panelGraffitiOptions == null)
+                    {
+                        panelGraffitiOptions = GameObject.Find("Panel_GraffitiOptions");
+                        if (panelGraffitiOptions == null)
+                        {
+                            Debug.LogWarning("GraffitiButtonLongPress: PanelGraffitiOptions not found! Please create it in the scene.");
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Initially hide the panel
+        if (panelGraffitiOptions != null)
+        {
+            panelGraffitiOptions.SetActive(false);
         }
 
         // Set up EventTrigger
@@ -171,6 +209,8 @@ public class GraffitiButtonLongPress : MonoBehaviour
             {
                 painter.SetShapeCircle();
             }
+            // Toggle panel visibility (similar to ColorPalette button)
+            TogglePanelGraffitiOptions();
             // Start enhanced click feedback
             StartCoroutine(EnhancedClickFeedback());
         }
@@ -347,6 +387,49 @@ public class GraffitiButtonLongPress : MonoBehaviour
         {
             StopCoroutine(scaleCoroutine);
             scaleCoroutine = null;
+        }
+    }
+    
+    /// <summary>
+    /// Toggle PanelGraffitiOptions visibility (similar to ColorPalette button's ToggleToolPanel)
+    /// </summary>
+    void TogglePanelGraffitiOptions()
+    {
+        if (panelGraffitiOptions != null)
+        {
+            // Toggle visibility: hide if currently active, show if hidden
+            bool isCurrentlyActive = panelGraffitiOptions.activeSelf;
+            panelGraffitiOptions.SetActive(!isCurrentlyActive);
+        }
+        else
+        {
+            // If not assigned, try to find by name (prioritize child objects)
+            Transform childPanel = transform.Find("PanelGraffitiOptions");
+            GameObject optionsObj = null;
+            if (childPanel != null)
+            {
+                optionsObj = childPanel.gameObject;
+            }
+            else
+            {
+                optionsObj = GameObject.Find("PanelGraffitiOptions");
+                if (optionsObj == null)
+                {
+                    // Compatible with old names
+                    optionsObj = GameObject.Find("GraffitiOptionsPanel");
+                    if (optionsObj == null)
+                    {
+                        optionsObj = GameObject.Find("Panel_GraffitiOptions");
+                    }
+                }
+            }
+            
+            if (optionsObj != null)
+            {
+                bool isCurrentlyActive = optionsObj.activeSelf;
+                optionsObj.SetActive(!isCurrentlyActive);
+                panelGraffitiOptions = optionsObj; // Cache reference
+            }
         }
     }
 }

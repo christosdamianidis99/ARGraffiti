@@ -11,7 +11,7 @@ public class PhonePainter : MonoBehaviour
     public GameObject brushDab_SquarePrefab;
 
     [Header("Brush Settings")]
-    [Range(0.02f, 0.2f)] public float brushSize = 0.06f;
+    [Range(0.02f, 0.2f)] public float brushSize = 0.04f;
     [Range(0.005f, 0.1f)] public float spacing = 0.02f;
     public float liftFromPlane = 0.01f;
     public BrushShape shape = BrushShape.Circle;
