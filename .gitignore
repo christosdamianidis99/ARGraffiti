@@ -52,3 +52,11 @@ ARGraffiti_BurstDebugInformation_DoNotShip/
 
 # Unity upgrade log
 UpgradeLog.htm
+
+# Build Profiles (iOS specific)
+Assets/Settings/Build Profiles/New iOS Profile.asset
+Assets/Settings/Build Profiles/New iOS Profile.asset.meta
+
+# XR Temp folder (temporary files)
+Assets/XR/Temp/
+Assets/XR/Temp.meta
