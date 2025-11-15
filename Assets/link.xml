@@ -1,0 +1,4 @@
+<linker>
+  <assembly fullname="Google" preserve="all" />
+  <assembly fullname="GoogleSignIn" preserve="all" />
+</linker>

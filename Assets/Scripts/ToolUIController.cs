@@ -60,10 +60,10 @@ public class ToolUIController : MonoBehaviour
         // Overwrite toggle
         if (toggleOverwrite)
         {
-            toggleOverwrite.isOn = painter.overwriteErase;
+            toggleOverwrite.isOn = painter.enableOverwriteErase;
             toggleOverwrite.onValueChanged.AddListener(v =>
             {
-                painter.overwriteErase = v;
+                painter.enableOverwriteErase = v;
 #if UNITY_ANDROID && !UNITY_EDITOR
                 try { Handheld.Vibrate(); } catch {}
 #endif

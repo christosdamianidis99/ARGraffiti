@@ -70,12 +70,14 @@ public class PlaneQualityFilter : MonoBehaviour
 
     void OnEnable()
     {
-        if (planeManager) planeManager.planesChanged += OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.AddListener(OnPlanesChanged);
     }
     void OnDisable()
     {
-        if (planeManager) planeManager.planesChanged -= OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.RemoveListener(OnPlanesChanged);
     }
+
+
 
     void Start()
     {
@@ -121,8 +123,7 @@ public class PlaneQualityFilter : MonoBehaviour
             ListPool<ARRaycastHit>.Release(hits);
         }
     }
-
-    void OnPlanesChanged(ARPlanesChangedEventArgs args)
+    private void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> args)
     {
         double now = Time.realtimeSinceStartupAsDouble;
 

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "688160846167",
+    "project_id": "ar-graffiti-556ce",
+    "storage_bucket": "ar-graffiti-556ce.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:688160846167:android:618f58b31a30b8be534e12",
+        "android_client_info": {
+          "package_name": "com.leiden.argraffiti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA39GanZxPk0Fz4hGMI-Hmvb_kdDHObtPE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
