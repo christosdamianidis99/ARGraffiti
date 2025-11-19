@@ -274,6 +274,9 @@ public class AppStateControllerPhone : MonoBehaviour
         DestroyAnchorIfAny();
         DestroyFrozenBorder();
 
+        if (planeFilter)
+            planeFilter.ResetFilterForScan();
+
         if (strokesRoot)
         {
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
@@ -493,16 +496,18 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             var pose = reticle.lastHitPose;
             _currentAnchor = anchorManager.AttachAnchor(plane, pose);
+            if (_currentAnchor && strokesRoot)
+                _currentAnchor.transform.SetParent(strokesRoot, worldPositionStays: true);
         }
 
         // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
         var anchorRoot = _currentAnchor ? _currentAnchor.transform : null;
-        painter.strokesRoot = strokesRoot;
-        // If you use the "strict polygon" version of PhonePainter, call LockToPlaneStrict:
-        // painter.LockToPlaneStrict(plane, boundary, anchorRoot);
-        // If you use the simpler version, just lock the plane:
-        painter.LockToPlane(plane);
+        if (painter)
+        {
+            painter.strokesRoot = strokesRoot;
+            painter.LockToPlaneStrict(plane, boundary, anchorRoot);
+        }
 
         SetPhase(Phase.PlaneSelected);
     }
@@ -606,7 +611,8 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             return false;
         }
-        return strokesRoot.childCount > 0;
+
+        return strokesRoot.GetComponentInChildren<StrokeMeta>(true) != null;
     }
 
     void Save()
@@ -1113,6 +1119,13 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void TogglePlaneMesh(bool visible)
     {
+        if (planeFilter)
+        {
+            if (visible) planeFilter.RefreshVisibility();
+            else planeFilter.ForceHideAllMeshes();
+            return;
+        }
+
         foreach (var p in planeManager.trackables)
         {
             var mr = p.GetComponent<MeshRenderer>();

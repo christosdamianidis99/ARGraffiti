@@ -123,6 +123,41 @@ public class PlaneQualityFilter : MonoBehaviour
             ListPool<ARRaycastHit>.Release(hits);
         }
     }
+
+    /// <summary>
+    /// Clear cached plane data so a fresh scan can start without stale primaries.
+    /// </summary>
+    public void ResetFilterForScan()
+    {
+        _primary = null;
+        _info.Clear();
+        if (hideAllUntilCriteriaPass)
+            ToggleAllMeshes(false);
+    }
+
+    /// <summary>
+    /// Hide every plane mesh immediately (used when locking the surface).
+    /// </summary>
+    public void ForceHideAllMeshes() => ToggleAllMeshes(false);
+
+    /// <summary>
+    /// Re-apply the visibility rules (show the primary plane if we have one).
+    /// </summary>
+    public void RefreshVisibility()
+    {
+        if (!planeManager) return;
+
+        if (!showOnlyPrimary)
+        {
+            ToggleAllMeshes(true);
+            return;
+        }
+
+        if (_primary)
+            ShowOnly(_primary);
+        else if (hideAllUntilCriteriaPass)
+            ToggleAllMeshes(false);
+    }
     private void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> args)
     {
         double now = Time.realtimeSinceStartupAsDouble;

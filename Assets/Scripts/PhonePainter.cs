@@ -21,6 +21,9 @@ public class PhonePainter : MonoBehaviour
     public ARPlane lockedPlane;
     ARRaycastManager _raycaster;
     readonly List<ARRaycastHit> _hits = new();
+    Vector2[] _lockedBoundaryLocal;
+    Transform _lockedPlaneTransform;
+    Transform _anchorRoot;
 
     [Header("Stroke Management")]
     public Transform strokesRoot;
@@ -78,13 +81,47 @@ public class PhonePainter : MonoBehaviour
     public void LockToPlane(ARPlane plane)
     {
         lockedPlane = plane;
+        _lockedPlaneTransform = plane ? plane.transform : null;
+        _lockedBoundaryLocal = null;
+        _anchorRoot = null;
+        _strokeParent = null;
         _lastPos = null;
+        _newStrokeOnNextDab = true;
+    }
+
+    /// <summary>
+    /// Strict lock that remembers the boundary snapshot and anchor transform so strokes stay glued to the selected plane.
+    /// </summary>
+    public void LockToPlaneStrict(ARPlane plane, Vector2[] boundaryLocal, Transform anchorRoot)
+    {
+        lockedPlane = plane;
+        _lockedPlaneTransform = plane ? plane.transform : null;
+        if (boundaryLocal != null && boundaryLocal.Length >= 3)
+        {
+            _lockedBoundaryLocal = new Vector2[boundaryLocal.Length];
+            boundaryLocal.CopyTo(_lockedBoundaryLocal, 0);
+        }
+        else
+        {
+            _lockedBoundaryLocal = CopyBoundaryNow(plane);
+        }
+        _anchorRoot = anchorRoot;
+        _strokeParent = null;
+        _strokeMat = null;
+        _lastPos = null;
+        _newStrokeOnNextDab = true;
     }
 
     public void ClearLock()
     {
         lockedPlane = null;
+        _lockedBoundaryLocal = null;
+        _lockedPlaneTransform = null;
+        _anchorRoot = null;
+        _strokeParent = null;
+        _strokeMat = null;
         _lastPos = null;
+        _newStrokeOnNextDab = true;
     }
 
     public void StartPainting()
@@ -113,7 +150,7 @@ public class PhonePainter : MonoBehaviour
 
     void Update()
     {
-        if (!paintingActive || lockedPlane == null) return;
+        if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
 
         Vector2 center = new(Screen.width * 0.5f, Screen.height * 0.5f);
         if (!_raycaster.Raycast(center, _hits, TrackableType.PlaneWithinPolygon)) return;
@@ -123,6 +160,17 @@ public class PhonePainter : MonoBehaviour
 
         var n = hit.pose.up;
         var pos = hit.pose.position;
+
+        if (_lockedBoundaryLocal != null && _lockedBoundaryLocal.Length >= 3)
+        {
+            var local = _lockedPlaneTransform.InverseTransformPoint(pos);
+            Vector2 point2D = new Vector2(local.x, local.z);
+            if (!PointInPolygon(point2D, _lockedBoundaryLocal))
+            {
+                _lastPos = null;
+                return;
+            }
+        }
 
         if (_lastPos == null || Vector3.Distance(_lastPos.Value, pos) >= spacing)
         {
@@ -171,10 +219,11 @@ public class PhonePainter : MonoBehaviour
     {
         if (_strokeParent == null || _newStrokeOnNextDab)
         {
-            var root = strokesRoot ? strokesRoot : transform;
+            Transform root = _anchorRoot ? _anchorRoot : (strokesRoot ? strokesRoot : transform);
             var go = new GameObject($"Stroke_{shape}_{ColorUtility.ToHtmlStringRGB(color)}");
             _strokeParent = go.transform;
-            _strokeParent.SetParent(root, false);
+            if (root)
+                _strokeParent.SetParent(root, false);
 
             var baseMat = (shape == BrushShape.Square) ? _baseSquare : _baseCircle;
             _strokeMat = baseMat ? new Material(baseMat) : null;
@@ -221,6 +270,32 @@ public class PhonePainter : MonoBehaviour
             if (otherLayer <= curLayer)
                 Destroy(go);
         }
+    }
+
+    static Vector2[] CopyBoundaryNow(ARPlane plane)
+    {
+        if (!plane) return null;
+        var boundary = plane.boundary;
+        if (!boundary.IsCreated || boundary.Length < 3) return null;
+        var arr = new Vector2[boundary.Length];
+        for (int i = 0; i < boundary.Length; i++)
+            arr[i] = boundary[i];
+        return arr;
+    }
+
+    static bool PointInPolygon(Vector2 p, Vector2[] poly)
+    {
+        if (poly == null || poly.Length < 3) return true;
+        bool inside = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        {
+            var pi = poly[i];
+            var pj = poly[j];
+            bool intersect = ((pi.y > p.y) != (pj.y > p.y)) &&
+                             (p.x < (pj.x - pi.x) * (p.y - pi.y) / ((pj.y - pi.y) + 1e-6f) + pi.x);
+            if (intersect) inside = !inside;
+        }
+        return inside;
     }
 }
 
