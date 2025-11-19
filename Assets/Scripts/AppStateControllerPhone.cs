@@ -292,7 +292,8 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             painter.ClearAllStrokes();
         }
-        else if (strokesRoot)
+
+        if (strokesRoot)
         {
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
@@ -630,7 +631,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (!strokesRoot)
             return false;
-
+            
         return strokesRoot.GetComponentInChildren<StrokeMeta>(true) != null;
     }
 
