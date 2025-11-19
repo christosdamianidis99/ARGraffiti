@@ -1,4 +1,6 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
@@ -57,6 +59,12 @@ public class AppStateControllerPhone : MonoBehaviour
     void OnDisable()
     {
         if (planeManager) planeManager.planesChanged -= OnPlanesChanged;
+    }
+
+    void OnDestroy()
+    {
+        if (painter)
+            painter.StrokeHistoryChanged -= UpdateUndoRedoButtonsVisibility;
     }
 
     void Awake()
@@ -130,6 +138,9 @@ public class AppStateControllerPhone : MonoBehaviour
 
         // At runtime, set background colors transparent; backgrounds only visible in editor
         HidePanelBackgroundsInRuntime();
+
+        if (painter)
+            painter.StrokeHistoryChanged += UpdateUndoRedoButtonsVisibility;
     }
 
 
@@ -276,6 +287,11 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (planeFilter)
             planeFilter.ResetFilterForScan();
+
+        if (painter)
+        {
+            painter.ClearAllStrokes();
+        }
 
         if (strokesRoot)
         {
@@ -607,17 +623,120 @@ public class AppStateControllerPhone : MonoBehaviour
     /// </summary>
     bool HasGraffitiStrokes()
     {
-        if (!strokesRoot)
+        if (painter)
         {
-            return false;
+            if (painter.HasVisibleStrokes)
+                return true;
         }
 
+        if (!strokesRoot)
+            return false;
+            
         return strokesRoot.GetComponentInChildren<StrokeMeta>(true) != null;
     }
 
     void Save()
     {
         StartCoroutine(ButtonClickFeedback(btnSave));
+        StartCoroutine(SaveGraffitiRoutine());
+    }
+
+    IEnumerator SaveGraffitiRoutine()
+    {
+        if (painter == null || !painter.HasVisibleStrokes)
+        {
+            SetTip("Draw something before saving.");
+            yield break;
+        }
+
+        yield return null; // allow UI feedback frame
+
+        if (!painter.TryCaptureSnapshot(out var snapshot, out var boundsWorld))
+        {
+            Debug.LogWarning("[SaveGraffiti] Unable to capture strokes.");
+            yield break;
+        }
+
+        string id = Guid.NewGuid().ToString("N");
+        string baseDir = Path.Combine(Application.persistentDataPath, "graffiti");
+        Directory.CreateDirectory(baseDir);
+
+        string pngPath = Path.Combine(baseDir, id + ".png");
+        string thumbPath = Path.Combine(baseDir, id + "_thumb.png");
+
+        try
+        {
+            var bytes = snapshot.EncodeToPNG();
+            File.WriteAllBytes(pngPath, bytes);
+
+            var thumb = CreateThumbnail(snapshot, 256);
+            File.WriteAllBytes(thumbPath, thumb.EncodeToPNG());
+            Destroy(thumb);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[SaveGraffiti] Failed to write files: {ex.Message}");
+            yield break;
+        }
+
+        var poseSource = _currentAnchor ? _currentAnchor.transform : (painter.lockedPlane ? painter.lockedPlane.transform : null);
+        Quaternion rotation = poseSource ? poseSource.rotation : Quaternion.identity;
+        Vector3 position = boundsWorld.center;
+        Vector3 localScale = new Vector3(Mathf.Max(0.1f, boundsWorld.size.x), Mathf.Max(0.1f, boundsWorld.size.z), 1f);
+
+        var data = new GraffitiData
+        {
+            id = id,
+            title = "",
+            pngPath = pngPath,
+            thumbPath = thumbPath,
+            createdUtcTicks = DateTime.UtcNow.Ticks,
+            position = position,
+            rotation = rotation,
+            localScale = localScale,
+        };
+
+        if (GraffitiRepository.I)
+            GraffitiRepository.I.AddOrUpdate(data);
+
+        SpawnPreviewQuad(data, snapshot);
+        SetTip("Saved!");
+    }
+
+    Texture2D CreateThumbnail(Texture2D source, int size)
+    {
+        var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32);
+        Graphics.Blit(source, rt);
+        var prev = RenderTexture.active;
+        RenderTexture.active = rt;
+        var thumb = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
+        thumb.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+        thumb.Apply();
+        RenderTexture.active = prev;
+        rt.Release();
+        Destroy(rt);
+        return thumb;
+    }
+
+    void SpawnPreviewQuad(GraffitiData data, Texture2D texture)
+    {
+        if (texture == null) return;
+
+        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = "GraffitiPreview_" + data.id;
+
+        Transform parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
+        if (parent)
+            quad.transform.SetParent(parent, worldPositionStays: false);
+
+        quad.transform.position = data.position;
+        quad.transform.rotation = data.rotation;
+        quad.transform.localScale = data.localScale;
+
+        var mr = quad.GetComponent<MeshRenderer>();
+        var mat = new Material(Shader.Find("Unlit/Texture"));
+        mat.mainTexture = texture;
+        mr.material = mat;
     }
 
     /// <summary>
@@ -776,6 +895,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnUndo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnUndo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnUndo));
+                    HandleUndoAction();
                 });
 
 #if UNITY_EDITOR
@@ -837,6 +957,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnRedo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnRedo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnRedo));
+                    HandleRedoAction();
                 });
 
 #if UNITY_EDITOR
@@ -1018,18 +1139,19 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         bool shouldShow = false;
 
+        bool hasVisibleStrokes = painter ? painter.HasVisibleStrokes : HasGraffitiStrokes();
+
         if (_phase == Phase.Painting)
         {
             shouldShow = true;
         }
         else if (_phase == Phase.PlaneSelected)
         {
-            shouldShow = HasGraffitiStrokes();
+            shouldShow = hasVisibleStrokes;
         }
 
-        // Check if there are strokes to undo/redo
-        bool canUndo = HasGraffitiStrokes();
-        bool canRedo = false; // TODO: Implement redo stack tracking
+        bool canUndo = painter ? painter.CanUndo : hasVisibleStrokes;
+        bool canRedo = painter ? painter.CanRedo : false;
 
 #if UNITY_EDITOR
         if (btnUndo != null)
@@ -1063,6 +1185,20 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[UpdateUndoRedoButtonsVisibility] btnRedo is NULL! Cannot update visibility.");
         }
 #endif
+    }
+
+    void HandleUndoAction()
+    {
+        if (!painter) return;
+        painter.UndoLastStroke();
+        UpdateUndoRedoButtonsVisibility();
+    }
+
+    void HandleRedoAction()
+    {
+        if (!painter) return;
+        painter.RedoStroke();
+        UpdateUndoRedoButtonsVisibility();
     }
 
     /// <summary>
