@@ -178,7 +178,7 @@ public class GalleryController : MonoBehaviour
                 PlayerPrefs.SetString("graffiti.last_id", data.id);
                 PlayerPrefs.Save();
                 // Load your AR scene (replace with your AR scene name)
-                UnityEngine.SceneManagement.SceneManager.LoadScene("02_ARMainScene");
+                UnityEngine.SceneManagement.SceneManager.LoadScene("02_ARMain");
             });
         }
     }

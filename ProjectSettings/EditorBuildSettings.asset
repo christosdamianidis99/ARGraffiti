@@ -13,6 +13,9 @@ EditorBuildSettings:
     guid: 281a29076cc35394a961078d4dd0f729
   - enabled: 1
     path: Assets/Scenes/02_ARMain.unity
+    guid: fb6b9136af9740c48bf35d10a2a050f4
+  - enabled: 0
+    path: Assets/Scenes/02_ARMain.unity
     guid: 1a625aa6ff83b604d8879d08c7c5cfaa
   - enabled: 1
     path: Assets/Scenes/03_Gallery.unity

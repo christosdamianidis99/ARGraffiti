@@ -72,7 +72,7 @@ public class AppStateControllerPhone : MonoBehaviour
         // btnGraffiti now uses the GraffitiButtonLongPress component to handle long press events
         // btnGraffiti.onClick.AddListener(ToggleGraffiti); // Removed, using long press instead
         btnSave.onClick.AddListener(Save);
-
+        
         // Bind ColorPalette button to toggle tool panel
         if (btnColorPalette != null)
         {
@@ -97,13 +97,13 @@ public class AppStateControllerPhone : MonoBehaviour
                 }
             }
         }
-
+        
         // Position save button at top-right of panelTop
         PositionSaveButtonAtTopRight();
-
+        
         // Initially hide save button - will show when surface is selected
         if (btnSave) btnSave.gameObject.SetActive(false);
-
+        
         // Initially hide select_surface button, will show after clicking scan
         if (btnSelectSurface)
         {
@@ -119,15 +119,15 @@ public class AppStateControllerPhone : MonoBehaviour
                 }
             }
         }
-
+        
         // Initialize Undo/Redo buttons - same position as select_surface button, hidden by default
         InitializeUndoRedoButtons();
-
+        
         // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
-
+        
         SetPhase(Phase.Idle);
-
+        
         // At runtime, set background colors transparent; backgrounds only visible in editor
         HidePanelBackgroundsInRuntime();
     }
@@ -169,14 +169,14 @@ public class AppStateControllerPhone : MonoBehaviour
     IEnumerator ButtonClickFeedback(Button btn)
     {
         if (!btn) yield break;
-
+        
         RectTransform rect = btn.GetComponent<RectTransform>();
         if (!rect)
         {
             Debug.LogWarning("ButtonClickFeedback: RectTransform not found!");
             yield break;
         }
-
+        
         // Get Image component for color change
         Image btnImage = btn.GetComponent<Image>();
         Color originalColor = Color.white;
@@ -184,11 +184,11 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             originalColor = btnImage.color;
         }
-
+        
         Vector3 originalScale = rect.localScale;
         Vector3 pressedScale = originalScale * 0.75f;  // Shrink to 75% for more obvious feedback
         float duration = 0.2f;  // Animation duration
-
+        
         // Phase 1: Press-in effect with gray out
         float elapsed = 0f;
         float pressDuration = duration * 0.3f;
@@ -197,7 +197,7 @@ public class AppStateControllerPhone : MonoBehaviour
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / pressDuration);
             rect.localScale = Vector3.Lerp(originalScale, pressedScale, t);
-
+            
             // Gray out effect (reduce brightness)
             if (btnImage != null)
             {
@@ -206,7 +206,7 @@ public class AppStateControllerPhone : MonoBehaviour
             }
             yield return null;
         }
-
+        
         // Phase 2: Dazzle effect (bright flash)
         elapsed = 0f;
         float dazzleDuration = duration * 0.2f;
@@ -223,7 +223,7 @@ public class AppStateControllerPhone : MonoBehaviour
             }
             yield return null;
         }
-
+        
         // Phase 3: Restore with bounce
         elapsed = 0f;
         float bounceDuration = duration * 0.5f;
@@ -235,7 +235,7 @@ public class AppStateControllerPhone : MonoBehaviour
             // Smooth bounce using easing
             float bounceT = 1f - Mathf.Pow(1f - t, 3f); // Ease out cubic
             rect.localScale = Vector3.Lerp(pressedScale, bounceScale, bounceT);
-
+            
             // Restore color
             if (btnImage != null)
             {
@@ -244,7 +244,7 @@ public class AppStateControllerPhone : MonoBehaviour
             }
             yield return null;
         }
-
+        
         // Phase 4: Final settle
         elapsed = 0f;
         float settleDuration = duration * 0.3f;
@@ -255,7 +255,7 @@ public class AppStateControllerPhone : MonoBehaviour
             rect.localScale = Vector3.Lerp(bounceScale, originalScale, t);
             yield return null;
         }
-
+        
         // Ensure final state
         rect.localScale = originalScale;
         if (btnImage != null)
@@ -297,7 +297,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         yield return null;
         TogglePlaneMesh(true);
-
+        
         UpdateUndoRedoButtonsVisibility();
     }
 
@@ -389,7 +389,7 @@ public class AppStateControllerPhone : MonoBehaviour
             UpdateSaveButtonVisibility();
             UpdateUndoRedoButtonsVisibility();
         }
-
+        
         if (_phase != Phase.Scanning) return;
 
         // In Scanning phase, ensure undo/redo buttons are hidden (no surface selected yet)
@@ -403,7 +403,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 hasPlane = planeFilter.PrimaryIsStable();
             else
                 hasPlane = reticle && reticle.isOverAnyPlane;
-
+            
             // Show button only when plane is detected
             if (hasPlane && !btnSelectSurface.gameObject.activeSelf)
             {
@@ -430,7 +430,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         //if (_phase != Phase.Scanning || reticle == null) return;
 
-
+        
 
         // Choose ONE primary plane after a short stable dwell
         if (_primaryScanPlane == null)
@@ -448,7 +448,7 @@ public class AppStateControllerPhone : MonoBehaviour
                     planeManager.requestedDetectionMode =
                         (align == PlaneAlignment.HorizontalUp || align == PlaneAlignment.HorizontalDown)
                         ? PlaneDetectionMode.Horizontal : PlaneDetectionMode.Vertical;
-                    ShowOnlyPlane(_primaryScanPlane);
+            ShowOnlyPlane(_primaryScanPlane);
                     SetTip("Move phone to grow this surface. Then press Select Surface.");
                 }
             }
@@ -485,7 +485,7 @@ public class AppStateControllerPhone : MonoBehaviour
         plane = GetRootPlane(plane);
         reticle.selectedPlane = plane;
 
-
+       
 
         // Anchor at the last center-hit pose for stability
         DestroyAnchorIfAny();
@@ -545,19 +545,19 @@ public class AppStateControllerPhone : MonoBehaviour
     void PositionSaveButtonAtTopRight()
     {
         if (!btnSave || !panelTop) return;
-
+        
         RectTransform panelRect = panelTop.GetComponent<RectTransform>();
         RectTransform buttonRect = btnSave.GetComponent<RectTransform>();
-
+        
         if (!panelRect || !buttonRect) return;
-
+        
         // Ensure button ignores layout to position independently
         var layoutElement = btnSave.GetComponent<UnityEngine.UI.LayoutElement>();
         if (layoutElement != null)
         {
             layoutElement.ignoreLayout = true;
         }
-
+        
         // Sync size with scan button
         if (btnScan)
         {
@@ -567,36 +567,36 @@ public class AppStateControllerPhone : MonoBehaviour
                 buttonRect.sizeDelta = scanRect.sizeDelta;
             }
         }
-
+        
         // Set anchor to right-center to align vertically with other buttons
         // Other buttons use y: 0.5 (vertical center) with Y position 0, so we align to that
         buttonRect.anchorMin = new Vector2(1f, 0.5f);  // Right-center anchor
         buttonRect.anchorMax = new Vector2(1f, 0.5f);  // Right-center anchor
         buttonRect.pivot = new Vector2(1f, 0.5f);      // Pivot at right-center
-
+        
         // Position with offset from right-center
         // X: distance from right edge, Y: 0 to align with other buttons vertically
         float offsetX = -60f;  // 60 pixels from right edge
         float offsetY = 0f;    // 0 pixels vertically (aligned with scan/select_surface buttons)
         buttonRect.anchoredPosition = new Vector2(offsetX, offsetY);
-
+        
         Canvas.ForceUpdateCanvases();
     }
-
+    
     /// <summary>
     /// Update save button visibility - show when surface is selected
     /// </summary>
     void UpdateSaveButtonVisibility()
     {
         if (!btnSave) return;
-
+        
         // Show save button when surface is selected (Phase.PlaneSelected or Phase.Painting)
         // No need to check for graffiti - button is available once surface is fixed
         bool surfaceSelected = (_phase == Phase.PlaneSelected || _phase == Phase.Painting);
-
+        
         btnSave.gameObject.SetActive(surfaceSelected);
     }
-
+    
     /// <summary>
     /// Check if there are any graffiti strokes on the surface
     /// </summary>
@@ -608,12 +608,12 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         return strokesRoot.childCount > 0;
     }
-
+    
     void Save()
     {
         StartCoroutine(ButtonClickFeedback(btnSave));
     }
-
+    
     /// <summary>
     /// Initialize Undo/Redo buttons - ensure they are properly configured
     /// </summary>
@@ -624,14 +624,14 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[InitializeUndoRedoButtons] btnSelectSurface is NULL, skipping initialization");
             return;
         }
-
+        
         RectTransform selectRect = btnSelectSurface.GetComponent<RectTransform>();
         if (!selectRect)
         {
             Debug.LogWarning("[InitializeUndoRedoButtons] btnSelectSurface RectTransform is NULL, skipping initialization");
             return;
         }
-
+        
         // Find undo button if not assigned
         if (!btnUndo)
         {
@@ -653,7 +653,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 Debug.LogWarning("[InitializeUndoRedoButtons] Panel_Top not found, cannot locate Button_Undo");
             }
         }
-
+        
         // Find redo button if not assigned
         if (!btnRedo)
         {
@@ -675,13 +675,13 @@ public class AppStateControllerPhone : MonoBehaviour
                 Debug.LogWarning("[InitializeUndoRedoButtons] Panel_Top not found, cannot locate Button_Redo");
             }
         }
-
+        
         // Button size and spacing
         // Use actual size from selectRect, or fallback to default size if 0 (when using HorizontalLayoutGroup)
         float buttonWidth = selectRect.sizeDelta.x > 0 ? selectRect.sizeDelta.x : 512f;
         float buttonHeight = selectRect.sizeDelta.y > 0 ? selectRect.sizeDelta.y : 80f;
         float spacing = 40f; // Spacing between buttons
-
+        
         // Get Panel_Top (parent) rect to calculate center position
         RectTransform parentRect = selectRect.parent as RectTransform;
         if (parentRect == null)
@@ -689,7 +689,7 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[InitializeUndoRedoButtons] Parent RectTransform not found!");
             return;
         }
-
+        
         // Get scan button's Y position for horizontal alignment
         // Since all buttons are in the same Panel_Top, they should use the same Y coordinate
         float centerY = 0f;
@@ -706,13 +706,13 @@ public class AppStateControllerPhone : MonoBehaviour
             // Fallback: use select_surface button's Y position
             centerY = selectRect.anchoredPosition.y;
         }
-
+        
         // Calculate center position where select_surface_btn will be
         // select_surface_btn uses left-bottom anchor (0, 0) and is centered by HorizontalLayoutGroup
         // Since buttons use left-bottom anchor, the center position is where the button's left edge should be
         float panelWidth = parentRect.rect.width;
         float selectSurfaceLeftEdge = (panelWidth - buttonWidth) * 0.5f;
-
+        
         // Get scan button's anchor settings for alignment
         Vector2 buttonAnchorMin = selectRect.anchorMin;
         Vector2 buttonAnchorMax = selectRect.anchorMax;
@@ -727,7 +727,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 buttonPivot = scanRect.pivot;
             }
         }
-
+        
         if (btnUndo)
         {
             RectTransform undoRect = btnUndo.GetComponent<RectTransform>();
@@ -740,43 +740,43 @@ public class AppStateControllerPhone : MonoBehaviour
                     layoutElement = btnUndo.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
                 }
                 layoutElement.ignoreLayout = true;
-
+                
                 // Use same anchor as scan button for horizontal alignment
                 undoRect.anchorMin = buttonAnchorMin;
                 undoRect.anchorMax = buttonAnchorMax;
                 undoRect.pivot = buttonPivot;
-
+                
                 // Ensure size matches select_surface button
                 undoRect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
-
+                
                 // Position: to the left of select_surface_btn
                 // Undo button left edge should be at: select_surface left edge - buttonWidth - spacing
                 undoRect.anchoredPosition = new Vector2(
                     selectSurfaceLeftEdge - buttonWidth - spacing,
                     centerY
                 );
-
+                
                 // Set icon if not already set (runtime fallback)
                 Image undoImage = btnUndo.GetComponent<Image>();
                 if (undoImage != null && undoImage.sprite == null)
                 {
                     SetButtonIcon(btnUndo, "undo");
                 }
-
+                
                 // Ensure button is interactable (not grayed out)
                 btnUndo.interactable = true;
-
+                
                 // Bind click event with same animation effect as scan button
                 btnUndo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnUndo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnUndo));
                 });
-
-#if UNITY_EDITOR
+                
+                #if UNITY_EDITOR
                 btnUndo.gameObject.SetActive(true);
-#else
+                #else
                 btnUndo.gameObject.SetActive(false);
-#endif
+                #endif
             }
             else
             {
@@ -787,7 +787,7 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             Debug.LogWarning("[InitializeUndoRedoButtons] btnUndo is NULL! Button will not be available.");
         }
-
+        
         if (btnRedo)
         {
             RectTransform redoRect = btnRedo.GetComponent<RectTransform>();
@@ -800,15 +800,15 @@ public class AppStateControllerPhone : MonoBehaviour
                     layoutElement = btnRedo.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
                 }
                 layoutElement.ignoreLayout = true;
-
+                
                 // Use same anchor as scan button for horizontal alignment
                 redoRect.anchorMin = buttonAnchorMin;
                 redoRect.anchorMax = buttonAnchorMax;
                 redoRect.pivot = buttonPivot;
-
+                
                 // Ensure size matches select_surface button
                 redoRect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
-
+                
                 // Position: to the right of select_surface_btn
                 // Redo button left edge should be at: select_surface right edge + spacing
                 // select_surface right edge = select_surface left edge + buttonWidth
@@ -816,28 +816,28 @@ public class AppStateControllerPhone : MonoBehaviour
                     selectSurfaceLeftEdge + buttonWidth + spacing,
                     centerY
                 );
-
+                
                 // Set icon if not already set (runtime fallback)
                 Image redoImage = btnRedo.GetComponent<Image>();
                 if (redoImage != null && redoImage.sprite == null)
                 {
                     SetButtonIcon(btnRedo, "redo");
                 }
-
+                
                 // Ensure button is interactable (not grayed out)
                 btnRedo.interactable = true;
-
+                
                 // Bind click event with same animation effect as scan button
                 btnRedo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnRedo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnRedo));
                 });
-
-#if UNITY_EDITOR
+                
+                #if UNITY_EDITOR
                 btnRedo.gameObject.SetActive(true);
-#else
+                #else
                 btnRedo.gameObject.SetActive(false);
-#endif
+                #endif
             }
             else
             {
@@ -849,7 +849,7 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[InitializeUndoRedoButtons] btnRedo is NULL! Button will not be available.");
         }
     }
-
+    
     /// <summary>
     /// Initialize Gallery button - positioned to the left of brush button, same style and size
     /// </summary>
@@ -864,20 +864,20 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnPaintBrush = brushTransform.GetComponent<Button>();
             }
         }
-
+        
         if (!btnPaintBrush)
         {
             Debug.LogWarning("InitializeGalleryButton: btnPaintBrush not found. Gallery button initialization skipped.");
             return;
         }
-
+        
         RectTransform brushRect = btnPaintBrush.GetComponent<RectTransform>();
         if (!brushRect)
         {
             Debug.LogWarning("InitializeGalleryButton: btnPaintBrush RectTransform not found.");
             return;
         }
-
+        
         // Find gallery button if not assigned
         if (!btnGallery && panelGraffiti)
         {
@@ -887,74 +887,74 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnGallery = galleryTransform.GetComponent<Button>();
             }
         }
-
+        
         if (!btnGallery)
         {
             Debug.LogWarning("InitializeGalleryButton: btnGallery not found. Please create Button_Gallery in Panel_Graffiti.");
             return;
         }
-
+        
         RectTransform galleryRect = btnGallery.GetComponent<RectTransform>();
         if (!galleryRect)
         {
             Debug.LogWarning("InitializeGalleryButton: btnGallery RectTransform not found.");
             return;
         }
-
+        
         // Set anchor to left-center (same as brush button)
         galleryRect.anchorMin = new Vector2(0f, 0.5f);
         galleryRect.anchorMax = new Vector2(0f, 0.5f);
         galleryRect.pivot = new Vector2(0.5f, 0.5f);
         galleryRect.sizeDelta = brushRect.sizeDelta;
-
+        
         // Position at the leftmost position
         // Get parent panel width to calculate margin
         RectTransform parentRect = panelGraffiti != null ? panelGraffiti.GetComponent<RectTransform>() : null;
         float panelWidth = parentRect != null ? parentRect.rect.width : 0f;
-
+        
         // Use same margin calculation as PanelGraffitiLayout
         float minMarginPercent = 0.03f; // 3% of screen width
         float buttonSize = brushRect.sizeDelta.x;
         float minMargin = panelWidth > 0 ? panelWidth * minMarginPercent : 30f; // Fallback to 30px if width is 0
-
+        
         // Position gallery button at the leftmost position
         // Position = left margin + button width / 2
         galleryRect.anchoredPosition = new Vector2(
             minMargin + buttonSize * 0.5f,
             0f
         );
-
+        
         // Set icon (gallery.png) if not already set
         Image galleryImage = btnGallery.GetComponent<Image>();
         if (galleryImage != null && galleryImage.sprite == null)
         {
             SetButtonIcon(btnGallery, "gallery");
         }
-
+        
         // Bind click event (TODO)
         btnGallery.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
         btnGallery.onClick.AddListener(() => {
             StartCoroutine(ButtonClickFeedback(btnGallery));
         });
     }
-
+    
     /// <summary>
     /// Set button icon from texture file
     /// </summary>
     void SetButtonIcon(Button button, string iconName)
     {
         if (!button) return;
-
+        
         Image buttonImage = button.GetComponent<Image>();
         if (buttonImage == null)
         {
             Debug.LogWarning($"Button {button.name} does not have an Image component");
             return;
         }
-
+        
         // Try loading from Resources folder first (runtime)
         Sprite sprite = Resources.Load<Sprite>($"Textures/{iconName}");
-
+        
         // If not found in Resources, try loading as Texture2D and convert to Sprite
         if (sprite == null)
         {
@@ -968,8 +968,8 @@ public class AppStateControllerPhone : MonoBehaviour
                 );
             }
         }
-
-#if UNITY_EDITOR
+        
+        #if UNITY_EDITOR
         // Try loading directly from Assets path (editor only)
         if (sprite == null)
         {
@@ -989,8 +989,8 @@ public class AppStateControllerPhone : MonoBehaviour
                 }
             }
         }
-#endif
-
+        #endif
+        
         if (sprite != null)
         {
             buttonImage.sprite = sprite;
@@ -1000,7 +1000,7 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning($"Could not load icon: {iconName}.png. Please ensure the file exists in Assets/Textures/ or Resources/Textures/");
         }
     }
-
+    
     /// <summary>
     /// Update Undo/Redo buttons visibility and interactable state - show when:
     /// 1. Surface is selected (Phase.PlaneSelected or Phase.Painting) AND graffiti exists
@@ -1011,7 +1011,7 @@ public class AppStateControllerPhone : MonoBehaviour
     void UpdateUndoRedoButtonsVisibility()
     {
         bool shouldShow = false;
-
+        
         if (_phase == Phase.Painting)
         {
             shouldShow = true;
@@ -1020,12 +1020,12 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             shouldShow = HasGraffitiStrokes();
         }
-
+        
         // Check if there are strokes to undo/redo
         bool canUndo = HasGraffitiStrokes();
         bool canRedo = false; // TODO: Implement redo stack tracking
-
-#if UNITY_EDITOR
+        
+        #if UNITY_EDITOR
         if (btnUndo != null)
         {
             btnUndo.gameObject.SetActive(shouldShow);
@@ -1036,7 +1036,7 @@ public class AppStateControllerPhone : MonoBehaviour
             btnRedo.gameObject.SetActive(shouldShow);
             btnRedo.interactable = canRedo;
         }
-#else
+        #else
         if (btnUndo != null)
         {
             btnUndo.gameObject.SetActive(shouldShow);
@@ -1056,9 +1056,9 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             Debug.LogWarning("[UpdateUndoRedoButtonsVisibility] btnRedo is NULL! Cannot update visibility.");
         }
-#endif
+        #endif
     }
-
+    
     /// <summary>
     /// Toggle the visibility of Panel_Tools when ColorPalette button is clicked
     /// </summary>

@@ -23,7 +23,7 @@ public class ToolUIController : MonoBehaviour
     [Header("Selection Settings")]
     [Tooltip("Scale factor for selected button (1.0 = normal size)")]
     public float selectedScale = 1.15f;
-    
+
     [Tooltip("Scale animation duration (seconds)")]
     public float scaleAnimationDuration = 0.2f;
 
@@ -82,10 +82,10 @@ public class ToolUIController : MonoBehaviour
         // Overwrite toggle
         if (toggleOverwrite)
         {
-            toggleOverwrite.isOn = painter.enableOverwriteErase;
+            toggleOverwrite.isOn = painter.overwriteErase;
             toggleOverwrite.onValueChanged.AddListener(v =>
             {
-                painter.enableOverwriteErase = v;
+                painter.overwriteErase = v;
 #if UNITY_ANDROID && !UNITY_EDITOR
                 try { Handheld.Vibrate(); } catch {}
 #endif
@@ -178,7 +178,7 @@ public class ToolUIController : MonoBehaviour
         while (elapsed < scaleAnimationDuration)
         {
             if (target == null) yield break;
-            
+
             // Time.deltaTime is platform-independent and works on both iOS and Android
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / scaleAnimationDuration);
@@ -201,7 +201,7 @@ public class ToolUIController : MonoBehaviour
         ring.anchorMin = ring.anchorMax = new Vector2(0.5f, 0.5f);
         ring.anchoredPosition = Vector2.zero;
         ring.SetAsLastSibling();
-        
+
         // Make highlight ring larger and more visible
         if (ring.sizeDelta.x == 0 || ring.sizeDelta.y == 0)
         {
@@ -209,7 +209,7 @@ public class ToolUIController : MonoBehaviour
             var buttonSize = target.sizeDelta;
             ring.sizeDelta = new Vector2(buttonSize.x * 1.2f, buttonSize.y * 1.2f);
         }
-        
+
         // Make ring more visible
         var ringImage = highlightRing.GetComponent<Image>();
         if (ringImage != null)
