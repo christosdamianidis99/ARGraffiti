@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -21,6 +22,9 @@ public class PhonePainter : MonoBehaviour
     public ARPlane lockedPlane;
     ARRaycastManager _raycaster;
     readonly List<ARRaycastHit> _hits = new();
+    Vector2[] _lockedBoundaryLocal;
+    Transform _lockedPlaneTransform;
+    Transform _anchorRoot;
 
     [Header("Stroke Management")]
     public Transform strokesRoot;
@@ -28,6 +32,14 @@ public class PhonePainter : MonoBehaviour
     Material _strokeMat;
     bool _newStrokeOnNextDab = true;
     int _nextLayerIndex = 0;
+    readonly List<Transform> _strokeHistory = new();
+    int _historyCursor = 0;
+    public event Action StrokeHistoryChanged;
+
+
+    public bool HasVisibleStrokes => _historyCursor > 0;
+    public bool CanUndo => _historyCursor > 0;
+    public bool CanRedo => _historyCursor < _strokeHistory.Count;
 
     [Header("Rendering Layers")]
     public bool layeredStrokes = true;
@@ -78,13 +90,39 @@ public class PhonePainter : MonoBehaviour
     public void LockToPlane(ARPlane plane)
     {
         lockedPlane = plane;
-        _lastPos = null;
+        _lockedPlaneTransform = plane ? plane.transform : null;
+        _lockedBoundaryLocal = null;
+        _anchorRoot = null;
+        ResetActiveStrokeState();
+    }
+
+    /// <summary>
+    /// Strict lock that remembers the boundary snapshot and anchor transform so strokes stay glued to the selected plane.
+    /// </summary>
+    public void LockToPlaneStrict(ARPlane plane, Vector2[] boundaryLocal, Transform anchorRoot)
+    {
+        lockedPlane = plane;
+        _lockedPlaneTransform = plane ? plane.transform : null;
+        if (boundaryLocal != null && boundaryLocal.Length >= 3)
+        {
+            _lockedBoundaryLocal = new Vector2[boundaryLocal.Length];
+            boundaryLocal.CopyTo(_lockedBoundaryLocal, 0);
+        }
+        else
+        {
+            _lockedBoundaryLocal = CopyBoundaryNow(plane);
+        }
+        _anchorRoot = anchorRoot;
+        ResetActiveStrokeState();
     }
 
     public void ClearLock()
     {
         lockedPlane = null;
-        _lastPos = null;
+        _lockedBoundaryLocal = null;
+        _lockedPlaneTransform = null;
+        _anchorRoot = null;
+        ResetActiveStrokeState();
     }
 
     public void StartPainting()
@@ -101,6 +139,61 @@ public class PhonePainter : MonoBehaviour
         paintingActive = false;
     }
 
+    public bool UndoLastStroke()
+    {
+        if (!CanUndo) return false;
+
+        _historyCursor--;
+        var stroke = _strokeHistory[_historyCursor];
+        if (stroke)
+            stroke.gameObject.SetActive(false);
+
+        ResetActiveStrokeState();
+        StrokeHistoryChanged?.Invoke();
+        return true;
+    }
+
+    public bool RedoStroke()
+    {
+        if (!CanRedo) return false;
+
+        var stroke = _strokeHistory[_historyCursor];
+        if (stroke)
+            stroke.gameObject.SetActive(true);
+
+        _historyCursor++;
+        ResetActiveStrokeState();
+        StrokeHistoryChanged?.Invoke();
+        return true;
+    }
+
+    public void ClearAllStrokes()
+    {
+        for (int i = 0; i < _strokeHistory.Count; i++)
+        {
+            var stroke = _strokeHistory[i];
+            if (stroke)
+                Destroy(stroke.gameObject);
+        }
+
+        _strokeHistory.Clear();
+        _historyCursor = 0;
+        _nextLayerIndex = 0;
+        ResetActiveStrokeState();
+
+        if (strokesRoot)
+        {
+            for (int i = strokesRoot.childCount - 1; i >= 0; i--)
+            {
+                var child = strokesRoot.GetChild(i);
+                if (child && child.GetComponent<StrokeMeta>())
+                    Destroy(child.gameObject);
+            }
+        }
+
+        StrokeHistoryChanged?.Invoke();
+    }
+
     public void SetBrushSize(float v) => brushSize = Mathf.Clamp(v, 0.02f, 0.2f);
     public void SetShapeCircle() => shape = BrushShape.Circle;
     public void SetShapeSquare() => shape = BrushShape.Square;
@@ -113,7 +206,7 @@ public class PhonePainter : MonoBehaviour
 
     void Update()
     {
-        if (!paintingActive || lockedPlane == null) return;
+        if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
 
         Vector2 center = new(Screen.width * 0.5f, Screen.height * 0.5f);
         if (!_raycaster.Raycast(center, _hits, TrackableType.PlaneWithinPolygon)) return;
@@ -123,6 +216,17 @@ public class PhonePainter : MonoBehaviour
 
         var n = hit.pose.up;
         var pos = hit.pose.position;
+
+        if (_lockedBoundaryLocal != null && _lockedBoundaryLocal.Length >= 3)
+        {
+            var local = _lockedPlaneTransform.InverseTransformPoint(pos);
+            Vector2 point2D = new Vector2(local.x, local.z);
+            if (!PointInPolygon(point2D, _lockedBoundaryLocal))
+            {
+                _lastPos = null;
+                return;
+            }
+        }
 
         if (_lastPos == null || Vector3.Distance(_lastPos.Value, pos) >= spacing)
         {
@@ -171,10 +275,11 @@ public class PhonePainter : MonoBehaviour
     {
         if (_strokeParent == null || _newStrokeOnNextDab)
         {
-            var root = strokesRoot ? strokesRoot : transform;
+            Transform root = _anchorRoot ? _anchorRoot : (strokesRoot ? strokesRoot : transform);
             var go = new GameObject($"Stroke_{shape}_{ColorUtility.ToHtmlStringRGB(color)}");
             _strokeParent = go.transform;
-            _strokeParent.SetParent(root, false);
+            if (root)
+                _strokeParent.SetParent(root, false);
 
             var baseMat = (shape == BrushShape.Square) ? _baseSquare : _baseCircle;
             _strokeMat = baseMat ? new Material(baseMat) : null;
@@ -194,7 +299,109 @@ public class PhonePainter : MonoBehaviour
 
             if (layeredStrokes) _nextLayerIndex++;
             _newStrokeOnNextDab = false;
+
+            RegisterStroke(_strokeParent);
         }
+    }
+
+    void RegisterStroke(Transform stroke)
+    {
+        if (!stroke) return;
+
+        if (_historyCursor < _strokeHistory.Count)
+        {
+            for (int i = _historyCursor; i < _strokeHistory.Count; i++)
+            {
+                var staleStroke = _strokeHistory[i];
+                if (staleStroke)
+                    Destroy(staleStroke.gameObject);
+            }
+            _strokeHistory.RemoveRange(_historyCursor, _strokeHistory.Count - _historyCursor);
+        }
+
+        stroke.gameObject.SetActive(true);
+        _strokeHistory.Add(stroke);
+        _historyCursor = _strokeHistory.Count;
+        StrokeHistoryChanged?.Invoke();
+    }
+
+    public bool TryGetStrokeBoundsWorld(out Bounds bounds)
+    {
+        bounds = default;
+        var root = strokesRoot ? strokesRoot : transform;
+        bool hasBounds = false;
+
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!r || !r.gameObject.activeInHierarchy) continue;
+            if (!r.GetComponentInParent<StrokeMeta>()) continue;
+
+            if (!hasBounds)
+            {
+                bounds = r.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    public bool TryCaptureSnapshot(out Texture2D snapshot, out Bounds boundsWorld, int resolution = 1024, float paddingMeters = 0.05f)
+    {
+        snapshot = null;
+        boundsWorld = default;
+
+        if (!TryGetStrokeBoundsWorld(out boundsWorld))
+            return false;
+
+        var normal = _lockedPlaneTransform ? _lockedPlaneTransform.up : Vector3.up;
+        var center = boundsWorld.center;
+
+        float maxSize = Mathf.Max(boundsWorld.size.x, boundsWorld.size.z);
+        float orthoSize = Mathf.Max(0.05f, maxSize * 0.5f + paddingMeters);
+        float camDist = Mathf.Max(boundsWorld.extents.magnitude + paddingMeters * 2f, 0.5f);
+
+        var camGO = new GameObject("StrokeCaptureCamera");
+        var cam = camGO.AddComponent<Camera>();
+        cam.enabled = false;
+        cam.orthographic = true;
+        cam.orthographicSize = orthoSize;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0, 0, 0, 0);
+        cam.nearClipPlane = 0.01f;
+        cam.farClipPlane = camDist * 4f;
+        cam.forceIntoRenderTexture = true;
+        cam.allowHDR = false;
+        cam.allowMSAA = false;
+        cam.cullingMask = _paintLayerIndex >= 0 ? (1 << _paintLayerIndex) : ~0;
+
+        cam.transform.position = center + normal * camDist;
+        cam.transform.rotation = Quaternion.LookRotation(-normal, Vector3.up);
+
+        var rt = new RenderTexture(resolution, resolution, 16, RenderTextureFormat.ARGB32);
+        rt.Create();
+
+        var prevActive = RenderTexture.active;
+        cam.targetTexture = rt;
+        RenderTexture.active = rt;
+        cam.Render();
+
+        snapshot = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false, true);
+        snapshot.ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
+        snapshot.Apply();
+
+        cam.targetTexture = null;
+        RenderTexture.active = prevActive;
+
+        rt.Release();
+        Destroy(rt);
+        Destroy(camGO);
+
+        return true;
     }
 
     void RemoveUnderlyingDabs(Vector3 worldPos, float radius)
@@ -221,6 +428,40 @@ public class PhonePainter : MonoBehaviour
             if (otherLayer <= curLayer)
                 Destroy(go);
         }
+    }
+
+    static Vector2[] CopyBoundaryNow(ARPlane plane)
+    {
+        if (!plane) return null;
+        var boundary = plane.boundary;
+        if (!boundary.IsCreated || boundary.Length < 3) return null;
+        var arr = new Vector2[boundary.Length];
+        for (int i = 0; i < boundary.Length; i++)
+            arr[i] = boundary[i];
+        return arr;
+    }
+
+    static bool PointInPolygon(Vector2 p, Vector2[] poly)
+    {
+        if (poly == null || poly.Length < 3) return true;
+        bool inside = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        {
+            var pi = poly[i];
+            var pj = poly[j];
+            bool intersect = ((pi.y > p.y) != (pj.y > p.y)) &&
+                             (p.x < (pj.x - pi.x) * (p.y - pi.y) / ((pj.y - pi.y) + 1e-6f) + pi.x);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    void ResetActiveStrokeState()
+    {
+        _strokeParent = null;
+        _strokeMat = null;
+        _lastPos = null;
+        _newStrokeOnNextDab = true;
     }
 }
 
