@@ -315,6 +315,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (arSession) arSession.Reset();
         yield return null;
 
+        // Wait briefly for tracking to return so plane detection starts from a stable pose
+        yield return WaitForTrackingReady(3f);
+
         SetPhase(Phase.Scanning);
 
         planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
@@ -323,6 +326,19 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(true);
 
         UpdateUndoRedoButtonsVisibility();
+    }
+
+    IEnumerator WaitForTrackingReady(float timeoutSeconds)
+    {
+        double start = Time.realtimeSinceStartupAsDouble;
+        while (Time.realtimeSinceStartupAsDouble - start < timeoutSeconds)
+        {
+            if (ARSession.state == ARSessionState.SessionTracking)
+                yield break;
+            yield return null;
+        }
+
+        Debug.LogWarning($"[WaitForTrackingReady] Timed out ({timeoutSeconds}s) waiting for AR tracking to stabilize.");
     }
 
     void SetPhase(Phase p)
@@ -785,6 +801,10 @@ public class AppStateControllerPhone : MonoBehaviour
         return thumb;
     }
 
+    [Header("Preview Rendering")]
+    [Tooltip("Material used for in-world graffiti previews; if null, a safe Unlit material is created at runtime.")]
+    public Material previewQuadMaterial;
+
     void SpawnPreviewQuad(GraffitiData data, Texture2D texture)
     {
         if (texture == null) return;
@@ -801,9 +821,39 @@ public class AppStateControllerPhone : MonoBehaviour
         quad.transform.localScale = data.localScale;
 
         var mr = quad.GetComponent<MeshRenderer>();
-        var mat = new Material(Shader.Find("Unlit/Texture"));
-        mat.mainTexture = texture;
-        mr.material = mat;
+
+        Material mat = null;
+        if (previewQuadMaterial)
+        {
+            mat = new Material(previewQuadMaterial);
+        }
+        else
+        {
+            // Build a resilient fallback so we never crash if a shader is stripped on device builds.
+            Shader shader = Shader.Find("Unlit/Texture");
+            if (!shader) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (!shader) shader = Shader.Find("Standard");
+
+            if (shader)
+            {
+                mat = new Material(shader);
+            }
+            else if (mr && mr.sharedMaterial)
+            {
+                mat = new Material(mr.sharedMaterial);
+            }
+        }
+
+        if (mat)
+        {
+            mat.mainTexture = texture;
+            mr.material = mat;
+        }
+        else
+        {
+            Debug.LogWarning("[SpawnPreviewQuad] Unable to create material for preview quad; using default renderer material.");
+            if (mr && mr.material) mr.material.mainTexture = texture;
+        }
     }
 
     /// <summary>

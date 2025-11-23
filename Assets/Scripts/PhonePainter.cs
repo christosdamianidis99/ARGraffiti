@@ -267,7 +267,16 @@ public class PhonePainter : MonoBehaviour
                 // Because localScale = brushSize, set base radius to 0.5 so world radius matches.
                 sc.radius = 0.5f;
             }
-            else col.isTrigger = true;
+            else if (col is MeshCollider mc)
+            {
+                // MeshCollider triggers require convex meshes; fall back to convex to avoid runtime errors on device.
+                mc.convex = true;
+                mc.isTrigger = true;
+            }
+            else
+            {
+                col.isTrigger = true;
+            }
 
 
             var mr = dab.GetComponentInChildren<MeshRenderer>();
