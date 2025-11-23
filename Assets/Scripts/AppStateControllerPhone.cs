@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
@@ -298,8 +298,8 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             painter.ClearAllStrokes();
         }
-        else if (strokesRoot)
-        {
+
+        if (strokesRoot) { 
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
                 Destroy(strokesRoot.GetChild(i).gameObject);
@@ -734,7 +734,6 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         string id = Guid.NewGuid().ToString("N");
-
         string ownerEmail = AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
         string ownerName = AuthManager.Instance ? AuthManager.Instance.DisplayName : string.Empty;
         string userFolder = string.IsNullOrEmpty(ownerEmail) ? "guest" : SanitizeForPath(ownerEmail);
@@ -762,14 +761,7 @@ public class AppStateControllerPhone : MonoBehaviour
         var poseSource = _currentAnchor ? _currentAnchor.transform : (painter.lockedPlane ? painter.lockedPlane.transform : null);
         Quaternion rotation = poseSource ? poseSource.rotation : Quaternion.identity;
         Vector3 position = boundsWorld.center;
-
-        // Compute width/height in the plane's tangent space so vertical walls scale correctly.
-        Vector3 planeRight = rotation * Vector3.right;
-        Vector3 planeForward = rotation * Vector3.forward;
-        Vector3 ext = boundsWorld.extents;
-        float halfWidth = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeRight.x), Mathf.Abs(planeRight.y), Mathf.Abs(planeRight.z)));
-        float halfHeight = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeForward.x), Mathf.Abs(planeForward.y), Mathf.Abs(planeForward.z)));
-        Vector3 localScale = new Vector3(Mathf.Max(0.1f, halfWidth * 2f), Mathf.Max(0.1f, halfHeight * 2f), 1f);
+        Vector3 localScale = new Vector3(Mathf.Max(0.1f, boundsWorld.size.x), Mathf.Max(0.1f, boundsWorld.size.z), 1f);
 
         var data = new GraffitiData
         {
@@ -808,6 +800,7 @@ public class AppStateControllerPhone : MonoBehaviour
         return thumb;
     }
 
+
     [Header("Preview Rendering")]
     [Tooltip("Material used for in-world graffiti previews; if null, a safe Unlit material is created at runtime.")]
     public Material previewQuadMaterial;
@@ -821,7 +814,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         Transform parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
         if (parent)
-            quad.transform.SetParent(parent, worldPositionStays: true);
+            quad.transform.SetParent(parent, worldPositionStays: false);
 
         quad.transform.position = data.position;
         quad.transform.rotation = data.rotation;
@@ -829,40 +822,23 @@ public class AppStateControllerPhone : MonoBehaviour
 
         var mr = quad.GetComponent<MeshRenderer>();
 
-        // Remove collider so previews never block raycasts/painting.
-        var collider = quad.GetComponent<Collider>();
-        if (collider) Destroy(collider);
-
         Material mat = null;
-        if (previewQuadMaterial && previewQuadMaterial.shader)
+        if (previewQuadMaterial)
         {
             mat = new Material(previewQuadMaterial);
         }
         else
         {
             // Build a resilient fallback so we never crash if a shader is stripped on device builds.
-            string[] shaderNames =
-            {
-                "Unlit/Texture",
-                "Unlit/Transparent",
-                "Sprites/Default",
-                "UI/Default",
-                "Universal Render Pipeline/Unlit",
-                "Standard"
-            };
-
-            Shader shader = null;
-            foreach (var name in shaderNames)
-            {
-                shader = Shader.Find(name);
-                if (shader) break;
-            }
+            Shader shader = Shader.Find("Unlit/Texture");
+            if (!shader) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (!shader) shader = Shader.Find("Standard");
 
             if (shader)
             {
                 mat = new Material(shader);
             }
-            else if (mr && mr.sharedMaterial && mr.sharedMaterial.shader)
+            else if (mr && mr.sharedMaterial)
             {
                 mat = new Material(mr.sharedMaterial);
             }
@@ -871,8 +847,6 @@ public class AppStateControllerPhone : MonoBehaviour
         if (mat)
         {
             mat.mainTexture = texture;
-            // Favor double-sided unlit so the preview is always visible and lit correctly.
-            if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
             mr.material = mat;
         }
         else

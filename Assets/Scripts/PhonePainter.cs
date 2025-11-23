@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
@@ -94,6 +94,10 @@ public class PhonePainter : MonoBehaviour
         _lockedBoundaryLocal = null;
         _anchorRoot = null;
         ResetActiveStrokeState();
+        _strokeParent = null;
+        _lastPos = null;
+        _newStrokeOnNextDab = true;
+
     }
 
     /// <summary>
@@ -114,6 +118,11 @@ public class PhonePainter : MonoBehaviour
         }
         _anchorRoot = anchorRoot;
         ResetActiveStrokeState();
+        _strokeParent = null;
+        _strokeMat = null;
+        _lastPos = null;
+        _newStrokeOnNextDab = true;
+
     }
 
     public void ClearLock()
@@ -123,6 +132,11 @@ public class PhonePainter : MonoBehaviour
         _lockedPlaneTransform = null;
         _anchorRoot = null;
         ResetActiveStrokeState();
+        _strokeParent = null;
+        _strokeMat = null;
+        _lastPos = null;
+        _newStrokeOnNextDab = true;
+
     }
 
     public void StartPainting()
@@ -207,6 +221,7 @@ public class PhonePainter : MonoBehaviour
     void Update()
     {
         if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
+
 
         // Avoid invalid hit tests when tracking is lost or the camera feed is unavailable.
         if (ARSession.state != ARSessionState.SessionTracking)
