@@ -208,6 +208,13 @@ public class PhonePainter : MonoBehaviour
     {
         if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
 
+        // Avoid invalid hit tests when tracking is lost or the camera feed is unavailable.
+        if (ARSession.state != ARSessionState.SessionTracking)
+        {
+            _lastPos = null;
+            return;
+        }
+
         Vector2 center = new(Screen.width * 0.5f, Screen.height * 0.5f);
         if (!_raycaster.Raycast(center, _hits, TrackableType.PlaneWithinPolygon)) return;
 
