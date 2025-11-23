@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
@@ -97,6 +97,7 @@ public class PhonePainter : MonoBehaviour
         _strokeParent = null;
         _lastPos = null;
         _newStrokeOnNextDab = true;
+
     }
 
     /// <summary>
@@ -121,6 +122,7 @@ public class PhonePainter : MonoBehaviour
         _strokeMat = null;
         _lastPos = null;
         _newStrokeOnNextDab = true;
+
     }
 
     public void ClearLock()
@@ -134,6 +136,7 @@ public class PhonePainter : MonoBehaviour
         _strokeMat = null;
         _lastPos = null;
         _newStrokeOnNextDab = true;
+
     }
 
     public void StartPainting()
@@ -219,6 +222,14 @@ public class PhonePainter : MonoBehaviour
     {
         if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
 
+
+        // Avoid invalid hit tests when tracking is lost or the camera feed is unavailable.
+        if (ARSession.state != ARSessionState.SessionTracking)
+        {
+            _lastPos = null;
+            return;
+        }
+
         Vector2 center = new(Screen.width * 0.5f, Screen.height * 0.5f);
         if (!_raycaster.Raycast(center, _hits, TrackableType.PlaneWithinPolygon)) return;
 
@@ -271,7 +282,16 @@ public class PhonePainter : MonoBehaviour
                 // Because localScale = brushSize, set base radius to 0.5 so world radius matches.
                 sc.radius = 0.5f;
             }
-            else col.isTrigger = true;
+            else if (col is MeshCollider mc)
+            {
+                // MeshCollider triggers require convex meshes; fall back to convex to avoid runtime errors on device.
+                mc.convex = true;
+                mc.isTrigger = true;
+            }
+            else
+            {
+                col.isTrigger = true;
+            }
 
 
             var mr = dab.GetComponentInChildren<MeshRenderer>();

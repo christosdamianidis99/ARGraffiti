@@ -10,6 +10,10 @@ public class GraffitiData
     public string thumbPath;          // optional thumbnail
     public long createdUtcTicks;
 
+    // Owner info (Google account)
+    public string ownerEmail;
+    public string ownerName;
+
     // Local AR pose (Unity world) saved at capture time
     public Vector3 position;
     public Quaternion rotation;

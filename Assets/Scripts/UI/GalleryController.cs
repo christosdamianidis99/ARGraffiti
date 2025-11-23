@@ -6,11 +6,26 @@ public class GalleryController : MonoBehaviour
 {
     public RectTransform contentRoot;   // the Content of a ScrollView
     public GameObject itemPrefab;       // optional; auto-create simple one if null
+    public string ownerEmailFilter;     // filter to the signed-in user
+
+    Button _closeButton;
 
     void Start()
     {
         EnsureUI();
         Refresh();
+    }
+
+    public void Show()
+    {
+        gameObject.SetActive(true);
+        EnsureUI();
+        Refresh();
+    }
+
+    public void SetOwnerFilter(string email)
+    {
+        ownerEmailFilter = email;
     }
 
     void EnsureUI()
@@ -76,13 +91,43 @@ public class GalleryController : MonoBehaviour
 
         scrollRect.content = contentRoot;
         scrollRect.viewport = vRect;
+
+        // Close button (top-right)
+        var closeGO = new GameObject("Close");
+        closeGO.transform.SetParent(panel.transform, false);
+        var cRect = closeGO.AddComponent<RectTransform>();
+        cRect.anchorMin = new Vector2(1, 1);
+        cRect.anchorMax = new Vector2(1, 1);
+        cRect.pivot = new Vector2(1, 1);
+        cRect.sizeDelta = new Vector2(80, 60);
+        cRect.anchoredPosition = new Vector2(-10, -10);
+        var cImg = closeGO.AddComponent<Image>();
+        cImg.color = new Color(1, 1, 1, 0.1f);
+        _closeButton = closeGO.AddComponent<Button>();
+        var cTxtGO = new GameObject("Text");
+        cTxtGO.transform.SetParent(closeGO.transform, false);
+        var ctRect = cTxtGO.AddComponent<RectTransform>();
+        ctRect.anchorMin = Vector2.zero; ctRect.anchorMax = Vector2.one; ctRect.offsetMin = ctRect.offsetMax = Vector2.zero;
+        var cTxt = cTxtGO.AddComponent<Text>();
+        cTxt.text = "Close";
+        cTxt.alignment = TextAnchor.MiddleCenter;
+        cTxt.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        cTxt.color = Color.white;
+
+        _closeButton.onClick.AddListener(() => gameObject.SetActive(false));
     }
 
     public void Refresh()
     {
+        EnsureUI();
+
         foreach (Transform t in contentRoot) Destroy(t.gameObject);
 
-        foreach (var data in GraffitiRepository.I.All())
+        if (GraffitiRepository.I == null) return;
+
+        var items = GraffitiRepository.I.AllForOwner(ownerEmailFilter);
+
+        foreach (var data in items)
         {
             var item = itemPrefab ? Instantiate(itemPrefab, contentRoot) : CreateItemGO();
             BindItem(item, data);

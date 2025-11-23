@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
@@ -37,9 +37,13 @@ public class AppStateControllerPhone : MonoBehaviour
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
 
+    GalleryController _galleryController;
+
     // State
     Phase _phase = Phase.Idle;
     ARAnchor _currentAnchor;
+    bool _lastGalleryEnabled;
+    string _lastGalleryOwnerEmail;
 
     // Single-plane scanning (one plane that grows)
     ARPlane _primaryScanPlane;
@@ -133,6 +137,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
         // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
+
+        UpdateGalleryButtonState();
 
         SetPhase(Phase.Idle);
 
@@ -293,8 +299,7 @@ public class AppStateControllerPhone : MonoBehaviour
             painter.ClearAllStrokes();
         }
 
-        if (strokesRoot)
-        {
+        if (strokesRoot) { 
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
                 Destroy(strokesRoot.GetChild(i).gameObject);
@@ -310,6 +315,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (arSession) arSession.Reset();
         yield return null;
 
+        // Wait briefly for tracking to return so plane detection starts from a stable pose
+        yield return WaitForTrackingReady(3f);
+
         SetPhase(Phase.Scanning);
 
         planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
@@ -318,6 +326,19 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(true);
 
         UpdateUndoRedoButtonsVisibility();
+    }
+
+    IEnumerator WaitForTrackingReady(float timeoutSeconds)
+    {
+        double start = Time.realtimeSinceStartupAsDouble;
+        while (Time.realtimeSinceStartupAsDouble - start < timeoutSeconds)
+        {
+            if (ARSession.state == ARSessionState.SessionTracking)
+                yield break;
+            yield return null;
+        }
+
+        Debug.LogWarning($"[WaitForTrackingReady] Timed out ({timeoutSeconds}s) waiting for AR tracking to stabilize.");
     }
 
     void SetPhase(Phase p)
@@ -402,6 +423,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void Update()
     {
+        UpdateGalleryButtonState();
+
         // Update save button and undo/redo buttons visibility when surface is selected
         if (_phase == Phase.PlaneSelected || _phase == Phase.Painting)
         {
@@ -589,16 +612,19 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Set anchor to right-center to align vertically with other buttons
-        // Other buttons use y: 0.5 (vertical center) with Y position 0, so we align to that
-        buttonRect.anchorMin = new Vector2(1f, 0.5f);  // Right-center anchor
-        buttonRect.anchorMax = new Vector2(1f, 0.5f);  // Right-center anchor
-        buttonRect.pivot = new Vector2(1f, 0.5f);      // Pivot at right-center
+        // Anchor to the right edge and align Y with the scan button
+        buttonRect.anchorMin = new Vector2(1f, 0.5f);
+        buttonRect.anchorMax = new Vector2(1f, 0.5f);
+        buttonRect.pivot = new Vector2(1f, 0.5f);
 
-        // Position with offset from right-center
-        // X: distance from right edge, Y: 0 to align with other buttons vertically
-        float offsetX = -60f;  // 60 pixels from right edge
-        float offsetY = 0f;    // 0 pixels vertically (aligned with scan/select_surface buttons)
+        float offsetX = -30f;  // margin from the right edge
+        float offsetY = 0f;
+        if (btnScan)
+        {
+            var scanRect = btnScan.GetComponent<RectTransform>();
+            if (scanRect) offsetY = scanRect.anchoredPosition.y;
+        }
+
         buttonRect.anchoredPosition = new Vector2(offsetX, offsetY);
 
         Canvas.ForceUpdateCanvases();
@@ -631,14 +657,64 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (!strokesRoot)
             return false;
-            
+
         return strokesRoot.GetComponentInChildren<StrokeMeta>(true) != null;
+    }
+
+    void UpdateGalleryButtonState()
+    {
+        if (!btnGallery) return;
+
+        string ownerEmail = CurrentOwnerEmail();
+        bool hasEntries = GraffitiRepository.I && GraffitiRepository.I.HasForOwner(ownerEmail);
+
+        if (hasEntries == _lastGalleryEnabled && ownerEmail == _lastGalleryOwnerEmail)
+            return;
+
+        _lastGalleryEnabled = hasEntries;
+        _lastGalleryOwnerEmail = ownerEmail;
+
+        btnGallery.interactable = hasEntries;
+        var img = btnGallery.GetComponent<Image>();
+        if (img)
+        {
+            var c = img.color;
+            c.a = hasEntries ? 1f : 0.35f;
+            img.color = c;
+        }
+    }
+
+    string CurrentOwnerEmail()
+    {
+        return AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
     }
 
     void Save()
     {
         StartCoroutine(ButtonClickFeedback(btnSave));
         StartCoroutine(SaveGraffitiRoutine());
+    }
+
+    void OpenGallery()
+    {
+        string ownerEmail = CurrentOwnerEmail();
+        if (GraffitiRepository.I == null || !GraffitiRepository.I.HasForOwner(ownerEmail))
+        {
+            SetTip("No saved graffiti yet.");
+            return;
+        }
+
+        if (!_galleryController)
+            _galleryController = FindObjectOfType<GalleryController>(true);
+
+        if (!_galleryController)
+        {
+            var go = new GameObject("GalleryController");
+            _galleryController = go.AddComponent<GalleryController>();
+        }
+
+        _galleryController.SetOwnerFilter(ownerEmail);
+        _galleryController.Show();
     }
 
     IEnumerator SaveGraffitiRoutine()
@@ -658,7 +734,10 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         string id = Guid.NewGuid().ToString("N");
-        string baseDir = Path.Combine(Application.persistentDataPath, "graffiti");
+        string ownerEmail = AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
+        string ownerName = AuthManager.Instance ? AuthManager.Instance.DisplayName : string.Empty;
+        string userFolder = string.IsNullOrEmpty(ownerEmail) ? "guest" : SanitizeForPath(ownerEmail);
+        string baseDir = Path.Combine(Application.persistentDataPath, "graffiti", userFolder);
         Directory.CreateDirectory(baseDir);
 
         string pngPath = Path.Combine(baseDir, id + ".png");
@@ -694,12 +773,15 @@ public class AppStateControllerPhone : MonoBehaviour
             position = position,
             rotation = rotation,
             localScale = localScale,
+            ownerEmail = ownerEmail,
+            ownerName = ownerName,
         };
 
         if (GraffitiRepository.I)
             GraffitiRepository.I.AddOrUpdate(data);
 
         SpawnPreviewQuad(data, snapshot);
+        UpdateGalleryButtonState();
         SetTip("Saved!");
     }
 
@@ -718,6 +800,11 @@ public class AppStateControllerPhone : MonoBehaviour
         return thumb;
     }
 
+
+    [Header("Preview Rendering")]
+    [Tooltip("Material used for in-world graffiti previews; if null, a safe Unlit material is created at runtime.")]
+    public Material previewQuadMaterial;
+
     void SpawnPreviewQuad(GraffitiData data, Texture2D texture)
     {
         if (texture == null) return;
@@ -734,9 +821,39 @@ public class AppStateControllerPhone : MonoBehaviour
         quad.transform.localScale = data.localScale;
 
         var mr = quad.GetComponent<MeshRenderer>();
-        var mat = new Material(Shader.Find("Unlit/Texture"));
-        mat.mainTexture = texture;
-        mr.material = mat;
+
+        Material mat = null;
+        if (previewQuadMaterial)
+        {
+            mat = new Material(previewQuadMaterial);
+        }
+        else
+        {
+            // Build a resilient fallback so we never crash if a shader is stripped on device builds.
+            Shader shader = Shader.Find("Unlit/Texture");
+            if (!shader) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (!shader) shader = Shader.Find("Standard");
+
+            if (shader)
+            {
+                mat = new Material(shader);
+            }
+            else if (mr && mr.sharedMaterial)
+            {
+                mat = new Material(mr.sharedMaterial);
+            }
+        }
+
+        if (mat)
+        {
+            mat.mainTexture = texture;
+            mr.material = mat;
+        }
+        else
+        {
+            Debug.LogWarning("[SpawnPreviewQuad] Unable to create material for preview quad; using default renderer material.");
+            if (mr && mr.material) mr.material.mainTexture = texture;
+        }
     }
 
     /// <summary>
@@ -1058,11 +1175,14 @@ public class AppStateControllerPhone : MonoBehaviour
             SetButtonIcon(btnGallery, "gallery");
         }
 
-        // Bind click event (TODO)
+        // Bind click event
         btnGallery.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
         btnGallery.onClick.AddListener(() => {
             StartCoroutine(ButtonClickFeedback(btnGallery));
+            OpenGallery();
         });
+
+        btnGallery.interactable = false; // enabled when data exists
     }
 
     /// <summary>
@@ -1333,6 +1453,14 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         if (_frozenBorderGO) Destroy(_frozenBorderGO);
         _frozenBorderGO = null;
+    }
+
+    static string SanitizeForPath(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        foreach (var ch in Path.GetInvalidFileNameChars())
+            raw = raw.Replace(ch.ToString(), "_");
+        return raw.Replace("@", "_at_");
     }
 
     // ========================= HELPERS =========================
