@@ -310,6 +310,14 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         else if (strokesRoot)
         {
+            painter.ClearAllStrokes();
+        }
+        else if (strokesRoot)
+        {
+            painter.ClearAllStrokes();
+        }
+
+        if (strokesRoot) { 
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
                 Destroy(strokesRoot.GetChild(i).gameObject);
