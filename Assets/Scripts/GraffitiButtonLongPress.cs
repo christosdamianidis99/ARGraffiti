@@ -67,7 +67,7 @@ public class GraffitiButtonLongPress : MonoBehaviour
         // Find AppStateControllerPhone in Start (could be not initialized in Awake)
         if (appStateController == null)
         {
-            appStateController = FindObjectOfType<AppStateControllerPhone>();
+            appStateController = FindFirstObjectByType<AppStateControllerPhone>();
             if (appStateController == null)
             {
                 Debug.LogWarning("GraffitiButtonLongPress: AppStateControllerPhone not found in Start!");
@@ -77,7 +77,7 @@ public class GraffitiButtonLongPress : MonoBehaviour
         // Find PhonePainter to set shape
         if (painter == null)
         {
-            painter = FindObjectOfType<PhonePainter>();
+            painter = FindFirstObjectByType<PhonePainter>();
             if (painter == null)
             {
                 Debug.LogWarning("GraffitiButtonLongPress: PhonePainter not found in Start!");
