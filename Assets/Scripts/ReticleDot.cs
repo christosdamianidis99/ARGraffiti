@@ -80,16 +80,25 @@ public class ReticleDot : MonoBehaviour
 
     void Update()
     {
-        var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-        isOverAnyPlane = rc.Raycast(center, hits, TrackableType.PlaneWithinPolygon);
-        if (isOverAnyPlane)
+        // Skip raycasts until the AR session is actually tracking to avoid spamming ARCore with invalid hits.
+        if (ARSession.state == ARSessionState.SessionTracking)
         {
-            var h = hits[0];
-            planeUnderReticle = h.trackable as ARPlane;
-            lastHitPose = h.pose;
+            var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            isOverAnyPlane = rc.Raycast(center, hits, TrackableType.PlaneWithinPolygon);
+            if (isOverAnyPlane)
+            {
+                var h = hits[0];
+                planeUnderReticle = h.trackable as ARPlane;
+                lastHitPose = h.pose;
+            }
+            else
+            {
+                planeUnderReticle = null;
+            }
         }
         else
         {
+            isOverAnyPlane = false;
             planeUnderReticle = null;
         }
 
