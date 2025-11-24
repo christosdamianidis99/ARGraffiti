@@ -40,6 +40,7 @@ public class AppStateControllerPhone : MonoBehaviour
     readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
     readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
     bool _galleryVisible;
+    GraffitiRepository _repo;
 
     // State
     Phase _phase = Phase.Idle;
@@ -149,6 +150,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (painter)
             painter.StrokeHistoryChanged += UpdateUndoRedoButtonsVisibility;
+
+        EnsureRepository();
     }
 
 
@@ -710,6 +713,19 @@ public class AppStateControllerPhone : MonoBehaviour
         return AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
     }
 
+    void EnsureRepository()
+    {
+        if (_repo)
+            return;
+
+        _repo = GraffitiRepository.I;
+        if (_repo)
+            return;
+
+        var repoGO = new GameObject("GraffitiRepository");
+        _repo = repoGO.AddComponent<GraffitiRepository>();
+    }
+
     void Save()
     {
         StartCoroutine(ButtonClickFeedback(btnSave));
@@ -795,18 +811,20 @@ public class AppStateControllerPhone : MonoBehaviour
             ownerName = ownerName,
         };
 
-        if (GraffitiRepository.I)
-            GraffitiRepository.I.AddOrUpdate(data);
+        EnsureRepository();
+        if (_repo)
+            _repo.AddOrUpdate(data);
 
-        ShowGalleryInAR(focusOnCurrentAnchor: true);
+        ShowGalleryInAR(forceCreateAnchors: true);
         UpdateGalleryButtonState();
         SetTip("Saved! Showing gallery.");
     }
 
-    public void ShowGalleryInAR(bool focusOnCurrentAnchor = false)
+    public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
         string ownerEmail = CurrentOwnerEmail();
-        if (GraffitiRepository.I == null || !GraffitiRepository.I.HasForOwner(ownerEmail))
+        EnsureRepository();
+        if (_repo == null || !_repo.HasForOwner(ownerEmail))
         {
             SetTip("No saved graffiti yet.");
             return;
@@ -817,18 +835,14 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(false);
         ClearGalleryPreviews();
 
-        var items = GraffitiRepository.I.AllForOwner(ownerEmail);
+        var items = _repo.AllForOwner(ownerEmail);
 
         foreach (var data in items)
         {
             var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
             if (!tex) continue;
 
-            Transform parent = null;
-            if (focusOnCurrentAnchor && _currentAnchor)
-                parent = _currentAnchor.transform;
-
-            var quad = SpawnPreviewQuad(data, tex, parent, createAnchor: parent == null);
+            var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: forceCreateAnchors || _currentAnchor == null);
             if (quad) _galleryPreviews.Add(quad);
         }
 
