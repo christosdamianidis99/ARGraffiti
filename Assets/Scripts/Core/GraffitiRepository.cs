@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
@@ -44,6 +45,18 @@ public class GraffitiRepository : MonoBehaviour
     [System.Serializable] private class Wrapper { public GraffitiData[] items; }
 
     public IReadOnlyList<GraffitiData> All() => _items;
+
+    public IReadOnlyList<GraffitiData> AllForOwner(string ownerEmail)
+    {
+        if (string.IsNullOrEmpty(ownerEmail)) return _items;
+        return _items.FindAll(x => string.Equals(x.ownerEmail, ownerEmail, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public bool HasForOwner(string ownerEmail)
+    {
+        if (string.IsNullOrEmpty(ownerEmail)) return _items.Count > 0;
+        return _items.Exists(x => string.Equals(x.ownerEmail, ownerEmail, StringComparison.OrdinalIgnoreCase));
+    }
 
     public GraffitiData Get(string id) => _items.Find(x => x.id == id);
 
