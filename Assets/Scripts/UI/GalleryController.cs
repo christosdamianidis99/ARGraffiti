@@ -14,7 +14,7 @@ public class GalleryController : MonoBehaviour
     void Awake()
     {
         if (!_app)
-            _app = FindObjectOfType<AppStateControllerPhone>(true);
+            _app = FindFirstObjectByType<AppStateControllerPhone>(FindObjectsInactive.Include);
     }
 
     public void SetOwnerFilter(string email)
@@ -25,7 +25,7 @@ public class GalleryController : MonoBehaviour
     public void Show()
     {
         if (!_app)
-            _app = FindObjectOfType<AppStateControllerPhone>(true);
+            _app = FindFirstObjectByType<AppStateControllerPhone>(FindObjectsInactive.Include);
 
         if (_app)
             _app.ShowGalleryInAR();
@@ -34,7 +34,7 @@ public class GalleryController : MonoBehaviour
     public void Hide()
     {
         if (!_app)
-            _app = FindObjectOfType<AppStateControllerPhone>(true);
+            _app = FindFirstObjectByType<AppStateControllerPhone>(FindObjectsInactive.Include);
 
         if (_app)
             _app.HideGalleryPreviews();

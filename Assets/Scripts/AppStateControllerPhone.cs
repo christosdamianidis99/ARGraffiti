@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
@@ -60,11 +60,17 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OnEnable()
     {
-        if (planeManager) planeManager.planesChanged += OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged += OnPlanesChanged;
     }
     void OnDisable()
     {
-        if (planeManager) planeManager.planesChanged -= OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged -= OnPlanesChanged;
+    }
+
+    void OnDestroy()
+    {
+        if (painter)
+            painter.StrokeHistoryChanged -= UpdateUndoRedoButtonsVisibility;
     }
 
     void OnDestroy()
@@ -912,7 +918,11 @@ public class AppStateControllerPhone : MonoBehaviour
         ARAnchor anchor = null;
         if (createAnchor && anchorManager)
         {
-            anchor = anchorManager.AddAnchor(new Pose(data.position, data.rotation));
+            Pose pose = new Pose(data.position, data.rotation);
+            anchor = anchorManager.TryAddAnchor(pose);
+            if (!anchor && painter && painter.lockedPlane)
+                anchor = anchorManager.AttachAnchor(painter.lockedPlane, pose);
+
             if (anchor) parent = anchor.transform;
             if (anchor) _galleryAnchors.Add(anchor);
         }
@@ -1474,7 +1484,7 @@ public class AppStateControllerPhone : MonoBehaviour
     }
 
     // ========================= PLANE EVENTS/VISUALS =========================
-    void OnPlanesChanged(ARPlanesChangedEventArgs args)
+    void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> args)
     {
         if (_phase != Phase.Scanning) return;
 

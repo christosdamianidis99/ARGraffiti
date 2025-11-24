@@ -49,7 +49,7 @@ public class ReticleDot : MonoBehaviour
         // Try to find painter if not assigned
         if (painter == null)
         {
-            painter = FindObjectOfType<PhonePainter>();
+            painter = FindFirstObjectByType<PhonePainter>();
         }
 
         // Try to find camera if not assigned
@@ -58,7 +58,7 @@ public class ReticleDot : MonoBehaviour
             arCamera = Camera.main;
             if (arCamera == null)
             {
-                arCamera = FindObjectOfType<Camera>();
+                arCamera = FindAnyObjectByType<Camera>();
             }
         }
     }
