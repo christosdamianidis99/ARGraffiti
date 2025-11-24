@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
@@ -304,6 +304,10 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         else if (strokesRoot)
         {
+            painter.ClearAllStrokes();
+        }
+
+        if (strokesRoot) { 
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
                 Destroy(strokesRoot.GetChild(i).gameObject);
