@@ -62,11 +62,11 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OnEnable()
     {
-        if (planeManager) planeManager.trackablesChanged += OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.AddListener(OnPlanesChanged);
     }
     void OnDisable()
     {
-        if (planeManager) planeManager.trackablesChanged -= OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.RemoveListener(OnPlanesChanged);
     }
 
     void OnDestroy()
@@ -305,10 +305,6 @@ public class AppStateControllerPhone : MonoBehaviour
             planeFilter.ResetFilterForScan();
 
         if (painter)
-        {
-            painter.ClearAllStrokes();
-        }
-        else if (strokesRoot)
         {
             painter.ClearAllStrokes();
         }
