@@ -33,6 +33,7 @@ public class AppStateControllerPhone : MonoBehaviour
     public GameObject panelTools;               // Panel_Tools
     public GameObject panelGraffiti;            // Panel_Graffiti
     public TMPro.TMP_Text txtTips;              // optional tips label
+    public float notificationSeconds = 2f;      // how long to keep save notification visible
 
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
@@ -291,6 +292,8 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         if (cameraManager) cameraManager.autoFocusRequested = true;
 
+        EnablePlaneManager();
+
         painter.StopPainting(); painter.ClearLock();
         if (reticle) reticle.selectedPlane = null;
         DestroyAnchorIfAny();
@@ -302,10 +305,6 @@ public class AppStateControllerPhone : MonoBehaviour
             planeFilter.ResetFilterForScan();
 
         if (painter)
-        {
-            painter.ClearAllStrokes();
-        }
-        else if (strokesRoot)
         {
             painter.ClearAllStrokes();
         }
@@ -339,6 +338,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
         yield return null;
         TogglePlaneMesh(true);
+
+        if (reticle) reticle.gameObject.SetActive(true);
 
         UpdateUndoRedoButtonsVisibility();
     }
@@ -558,7 +559,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (anchorManager && raycaster)
         {
             var pose = reticle.lastHitPose;
-            _currentAnchor = anchorManager.AttachAnchor(plane, pose);
+            _currentAnchor = CreateWorldAnchor(pose);
             if (_currentAnchor && strokesRoot)
                 _currentAnchor.transform.SetParent(strokesRoot, worldPositionStays: true);
         }
@@ -819,9 +820,11 @@ public class AppStateControllerPhone : MonoBehaviour
         if (_repo)
             _repo.AddOrUpdate(data);
 
+        // Stop scanning and enter gallery mode right after saving
+        StopScanningForGallery();
         ShowGalleryInAR(forceCreateAnchors: true);
         UpdateGalleryButtonState();
-        SetTip("Saved! Showing gallery.");
+        ShowNotification("Saved! Showing gallery.");
     }
 
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
@@ -833,6 +836,8 @@ public class AppStateControllerPhone : MonoBehaviour
             SetTip("No saved graffiti yet.");
             return;
         }
+
+        StopScanningForGallery();
 
         if (painter)
             painter.StopPainting();
@@ -877,6 +882,58 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         _galleryPreviews.Clear();
         _galleryVisible = false;
+    }
+
+    ARAnchor CreateWorldAnchor(Pose pose)
+    {
+        if (!anchorManager) return null;
+
+        var go = new GameObject("WorldAnchor");
+        go.transform.SetPositionAndRotation(pose.position, pose.rotation);
+        go.transform.SetParent(anchorManager.transform, worldPositionStays: true);
+        var anchor = go.AddComponent<ARAnchor>();
+        return anchor;
+    }
+
+    void StopScanningForGallery()
+    {
+        if (planeManager)
+        {
+            planeManager.requestedDetectionMode = PlaneDetectionMode.None;
+            planeManager.enabled = false;
+        }
+
+        if (reticle)
+            reticle.gameObject.SetActive(false);
+
+        SetPhase(Phase.Idle);
+    }
+
+    void EnablePlaneManager()
+    {
+        if (!planeManager) return;
+        if (!planeManager.enabled)
+            planeManager.enabled = true;
+    }
+
+    Coroutine _notificationRoutine;
+    void ShowNotification(string message)
+    {
+        if (_notificationRoutine != null)
+            StopCoroutine(_notificationRoutine);
+        _notificationRoutine = StartCoroutine(NotificationRoutine(message));
+    }
+
+    IEnumerator NotificationRoutine(string message)
+    {
+        SetTip(message);
+        float elapsed = 0f;
+        while (elapsed < notificationSeconds)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        _notificationRoutine = null;
     }
 
     Texture2D LoadTextureFromDisk(string primary, string fallback = null)
@@ -931,19 +988,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (createAnchor && anchorManager)
         {
             Pose pose = new Pose(data.position, data.rotation);
-
-            if (painter && painter.lockedPlane)
-            {
-                anchor = anchorManager.AttachAnchor(painter.lockedPlane, pose);
-            }
-
-            if (!anchor)
-            {
-                var anchorGO = new GameObject($"PreviewAnchor_{data.id}");
-                anchorGO.transform.SetPositionAndRotation(pose.position, pose.rotation);
-                anchorGO.transform.SetParent(anchorManager.transform, worldPositionStays: true);
-                anchor = anchorGO.AddComponent<ARAnchor>();
-            }
+            anchor = CreateWorldAnchor(pose);
 
             if (anchor)
             {
