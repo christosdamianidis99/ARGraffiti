@@ -1,4 +1,6 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
@@ -35,9 +37,16 @@ public class AppStateControllerPhone : MonoBehaviour
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
 
+    readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
+    readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
+    bool _galleryVisible;
+    GraffitiRepository _repo;
+
     // State
     Phase _phase = Phase.Idle;
     ARAnchor _currentAnchor;
+    bool _lastGalleryEnabled;
+    string _lastGalleryOwnerEmail;
 
     // Single-plane scanning (one plane that grows)
     ARPlane _primaryScanPlane;
@@ -52,11 +61,17 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OnEnable()
     {
-        if (planeManager) planeManager.planesChanged += OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged += OnPlanesChanged;
     }
     void OnDisable()
     {
-        if (planeManager) planeManager.planesChanged -= OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged -= OnPlanesChanged;
+    }
+
+    void OnDestroy()
+    {
+        if (painter)
+            painter.StrokeHistoryChanged -= UpdateUndoRedoButtonsVisibility;
     }
 
     void Awake()
@@ -126,10 +141,17 @@ public class AppStateControllerPhone : MonoBehaviour
         // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
 
+        UpdateGalleryButtonState();
+
         SetPhase(Phase.Idle);
 
         // At runtime, set background colors transparent; backgrounds only visible in editor
         HidePanelBackgroundsInRuntime();
+
+        if (painter)
+            painter.StrokeHistoryChanged += UpdateUndoRedoButtonsVisibility;
+
+        EnsureRepository();
     }
 
 
@@ -274,7 +296,16 @@ public class AppStateControllerPhone : MonoBehaviour
         DestroyAnchorIfAny();
         DestroyFrozenBorder();
 
-        if (strokesRoot)
+        ClearGalleryPreviews();
+
+        if (planeFilter)
+            planeFilter.ResetFilterForScan();
+
+        if (painter)
+        {
+            painter.ClearAllStrokes();
+        }
+        else if (strokesRoot)
         {
             for (int i = strokesRoot.childCount - 1; i >= 0; i--)
             {
@@ -291,6 +322,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (arSession) arSession.Reset();
         yield return null;
 
+        // Wait briefly for tracking to return so plane detection starts from a stable pose
+        yield return WaitForTrackingReady(3f);
+
         SetPhase(Phase.Scanning);
 
         planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
@@ -299,6 +333,19 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(true);
 
         UpdateUndoRedoButtonsVisibility();
+    }
+
+    IEnumerator WaitForTrackingReady(float timeoutSeconds)
+    {
+        double start = Time.realtimeSinceStartupAsDouble;
+        while (Time.realtimeSinceStartupAsDouble - start < timeoutSeconds)
+        {
+            if (ARSession.state == ARSessionState.SessionTracking)
+                yield break;
+            yield return null;
+        }
+
+        Debug.LogWarning($"[WaitForTrackingReady] Timed out ({timeoutSeconds}s) waiting for AR tracking to stabilize.");
     }
 
     void SetPhase(Phase p)
@@ -383,6 +430,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void Update()
     {
+        UpdateGalleryButtonState();
+
         // Update save button and undo/redo buttons visibility when surface is selected
         if (_phase == Phase.PlaneSelected || _phase == Phase.Painting)
         {
@@ -435,7 +484,16 @@ public class AppStateControllerPhone : MonoBehaviour
         // Choose ONE primary plane after a short stable dwell
         if (_primaryScanPlane == null)
         {
-            if (reticle.isOverAnyPlane && reticle.planeUnderReticle != null)
+            if (planeFilter && planeFilter.PrimaryIsStable())
+            {
+                _primaryScanPlane = GetRootPlane(planeFilter.PrimaryPlane);
+                if (_primaryScanPlane)
+                {
+                    ShowOnlyPlane(_primaryScanPlane);
+                    SetTip("Move phone to grow this surface. Then press Select Surface.");
+                }
+            }
+            else if (reticle.isOverAnyPlane && reticle.planeUnderReticle != null)
             {
                 if (_reticleStableStart < 0) _reticleStableStart = Time.realtimeSinceStartupAsDouble;
 
@@ -493,16 +551,22 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             var pose = reticle.lastHitPose;
             _currentAnchor = anchorManager.AttachAnchor(plane, pose);
+            if (_currentAnchor && strokesRoot)
+                _currentAnchor.transform.SetParent(strokesRoot, worldPositionStays: true);
         }
+
+        HideAllOtherPlanes(plane);
+        if (planeManager)
+            planeManager.requestedDetectionMode = PlaneDetectionMode.None;
 
         // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
         var anchorRoot = _currentAnchor ? _currentAnchor.transform : null;
-        painter.strokesRoot = strokesRoot;
-        // If you use the "strict polygon" version of PhonePainter, call LockToPlaneStrict:
-        // painter.LockToPlaneStrict(plane, boundary, anchorRoot);
-        // If you use the simpler version, just lock the plane:
-        painter.LockToPlane(plane);
+        if (painter)
+        {
+            painter.strokesRoot = strokesRoot;
+            painter.LockToPlaneStrict(plane, boundary, anchorRoot);
+        }
 
         SetPhase(Phase.PlaneSelected);
     }
@@ -568,16 +632,19 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Set anchor to right-center to align vertically with other buttons
-        // Other buttons use y: 0.5 (vertical center) with Y position 0, so we align to that
-        buttonRect.anchorMin = new Vector2(1f, 0.5f);  // Right-center anchor
-        buttonRect.anchorMax = new Vector2(1f, 0.5f);  // Right-center anchor
-        buttonRect.pivot = new Vector2(1f, 0.5f);      // Pivot at right-center
+        // Anchor to the right edge and align Y with the scan button
+        buttonRect.anchorMin = new Vector2(1f, 0.5f);
+        buttonRect.anchorMax = new Vector2(1f, 0.5f);
+        buttonRect.pivot = new Vector2(1f, 0.5f);
 
-        // Position with offset from right-center
-        // X: distance from right edge, Y: 0 to align with other buttons vertically
-        float offsetX = -60f;  // 60 pixels from right edge
-        float offsetY = 0f;    // 0 pixels vertically (aligned with scan/select_surface buttons)
+        float offsetX = -30f;  // margin from the right edge
+        float offsetY = 0f;
+        if (btnScan)
+        {
+            var scanRect = btnScan.GetComponent<RectTransform>();
+            if (scanRect) offsetY = scanRect.anchoredPosition.y;
+        }
+
         buttonRect.anchoredPosition = new Vector2(offsetX, offsetY);
 
         Canvas.ForceUpdateCanvases();
@@ -602,16 +669,333 @@ public class AppStateControllerPhone : MonoBehaviour
     /// </summary>
     bool HasGraffitiStrokes()
     {
-        if (!strokesRoot)
+        if (painter)
         {
-            return false;
+            if (painter.HasVisibleStrokes)
+                return true;
         }
-        return strokesRoot.childCount > 0;
+
+        if (!strokesRoot)
+            return false;
+
+        return strokesRoot.GetComponentInChildren<StrokeMeta>(true) != null;
+    }
+
+    void UpdateGalleryButtonState()
+    {
+        if (!btnGallery) return;
+
+        string ownerEmail = CurrentOwnerEmail();
+        bool hasEntries = GraffitiRepository.I && GraffitiRepository.I.HasForOwner(ownerEmail);
+
+        if (hasEntries == _lastGalleryEnabled && ownerEmail == _lastGalleryOwnerEmail)
+            return;
+
+        _lastGalleryEnabled = hasEntries;
+        _lastGalleryOwnerEmail = ownerEmail;
+
+        btnGallery.interactable = hasEntries;
+        var img = btnGallery.GetComponent<Image>();
+        if (img)
+        {
+            var c = img.color;
+            c.a = hasEntries ? 1f : 0.35f;
+            img.color = c;
+        }
+    }
+
+    string CurrentOwnerEmail()
+    {
+        return AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
+    }
+
+    void EnsureRepository()
+    {
+        if (_repo)
+            return;
+
+        _repo = GraffitiRepository.I;
+        if (_repo)
+            return;
+
+        var repoGO = new GameObject("GraffitiRepository");
+        _repo = repoGO.AddComponent<GraffitiRepository>();
     }
 
     void Save()
     {
         StartCoroutine(ButtonClickFeedback(btnSave));
+        StartCoroutine(SaveGraffitiRoutine());
+    }
+
+    void OpenGallery()
+    {
+        if (_galleryVisible)
+        {
+            HideGalleryPreviews();
+            return;
+        }
+
+        ShowGalleryInAR();
+    }
+
+    IEnumerator SaveGraffitiRoutine()
+    {
+        if (painter == null || !painter.HasVisibleStrokes)
+        {
+            SetTip("Draw something before saving.");
+            yield break;
+        }
+
+        yield return null; // allow UI feedback frame
+
+        if (!painter.TryCaptureStrokeSnapshot(out var snapshot, out var boundsWorld))
+        {
+            Debug.LogWarning("[SaveGraffiti] Unable to capture strokes.");
+            yield break;
+        }
+
+        string id = Guid.NewGuid().ToString("N");
+
+        string ownerEmail = AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
+        string ownerName = AuthManager.Instance ? AuthManager.Instance.DisplayName : string.Empty;
+        string userFolder = string.IsNullOrEmpty(ownerEmail) ? "guest" : SanitizeForPath(ownerEmail);
+        string baseDir = Path.Combine(Application.persistentDataPath, "graffiti", userFolder);
+        Directory.CreateDirectory(baseDir);
+
+        string pngPath = Path.Combine(baseDir, id + ".png");
+        string thumbPath = Path.Combine(baseDir, id + "_thumb.png");
+
+        try
+        {
+            var bytes = snapshot.EncodeToPNG();
+            File.WriteAllBytes(pngPath, bytes);
+
+            var thumb = CreateThumbnail(snapshot, 256);
+            File.WriteAllBytes(thumbPath, thumb.EncodeToPNG());
+            Destroy(thumb);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[SaveGraffiti] Failed to write files: {ex.Message}");
+            yield break;
+        }
+
+        var poseSource = _currentAnchor ? _currentAnchor.transform : (painter.lockedPlane ? painter.lockedPlane.transform : null);
+        Quaternion rotation = poseSource ? poseSource.rotation : Quaternion.identity;
+        Vector3 position = boundsWorld.center;
+
+        // Compute width/height in the plane's tangent space so vertical walls scale correctly.
+        Vector3 planeRight = rotation * Vector3.right;
+        Vector3 planeForward = rotation * Vector3.forward;
+        Vector3 ext = boundsWorld.extents;
+        float halfWidth = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeRight.x), Mathf.Abs(planeRight.y), Mathf.Abs(planeRight.z)));
+        float halfHeight = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeForward.x), Mathf.Abs(planeForward.y), Mathf.Abs(planeForward.z)));
+        Vector3 localScale = new Vector3(Mathf.Max(0.1f, halfWidth * 2f), Mathf.Max(0.1f, halfHeight * 2f), 1f);
+
+        var data = new GraffitiData
+        {
+            id = id,
+            title = "",
+            pngPath = pngPath,
+            thumbPath = thumbPath,
+            createdUtcTicks = DateTime.UtcNow.Ticks,
+            position = position,
+            rotation = rotation,
+            localScale = localScale,
+            ownerEmail = ownerEmail,
+            ownerName = ownerName,
+        };
+
+        EnsureRepository();
+        if (_repo)
+            _repo.AddOrUpdate(data);
+
+        ShowGalleryInAR(forceCreateAnchors: true);
+        UpdateGalleryButtonState();
+        SetTip("Saved! Showing gallery.");
+    }
+
+    public void ShowGalleryInAR(bool forceCreateAnchors = true)
+    {
+        string ownerEmail = CurrentOwnerEmail();
+        EnsureRepository();
+        if (_repo == null || !_repo.HasForOwner(ownerEmail))
+        {
+            SetTip("No saved graffiti yet.");
+            return;
+        }
+
+        if (painter)
+            painter.StopPainting();
+        TogglePlaneMesh(false);
+        ClearGalleryPreviews();
+
+        var items = _repo.AllForOwner(ownerEmail);
+
+        foreach (var data in items)
+        {
+            var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
+            if (!tex) continue;
+
+            var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: forceCreateAnchors || _currentAnchor == null);
+            if (quad) _galleryPreviews.Add(quad);
+        }
+
+        _galleryVisible = _galleryPreviews.Count > 0;
+        if (_galleryVisible)
+            SetTip("Showing saved graffiti in AR.");
+    }
+
+    public void HideGalleryPreviews()
+    {
+        ClearGalleryPreviews();
+        SetTip("Gallery hidden.");
+    }
+
+    void ClearGalleryPreviews()
+    {
+        foreach (var anchor in _galleryAnchors)
+        {
+            if (anchor)
+                Destroy(anchor.gameObject);
+        }
+        _galleryAnchors.Clear();
+
+        foreach (var go in _galleryPreviews)
+        {
+            if (go)
+                Destroy(go);
+        }
+        _galleryPreviews.Clear();
+        _galleryVisible = false;
+    }
+
+    Texture2D LoadTextureFromDisk(string primary, string fallback = null)
+    {
+        string path = (!string.IsNullOrEmpty(primary) && File.Exists(primary)) ? primary :
+            (!string.IsNullOrEmpty(fallback) && File.Exists(fallback) ? fallback : null);
+
+        if (string.IsNullOrEmpty(path)) return null;
+
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+            tex.LoadImage(bytes);
+            return tex;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Gallery] Failed to load texture from {path}: {ex.Message}");
+            return null;
+        }
+    }
+
+    Texture2D CreateThumbnail(Texture2D source, int size)
+    {
+        var rt = new RenderTexture(size, size, 0, RenderTextureFormat.ARGB32);
+        Graphics.Blit(source, rt);
+        var prev = RenderTexture.active;
+        RenderTexture.active = rt;
+        var thumb = new Texture2D(size, size, TextureFormat.RGBA32, false, true);
+        thumb.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+        thumb.Apply();
+        RenderTexture.active = prev;
+        rt.Release();
+        Destroy(rt);
+        return thumb;
+    }
+
+    [Header("Preview Rendering")]
+    [Tooltip("Material used for in-world graffiti previews; if null, a safe Unlit material is created at runtime.")]
+    public Material previewQuadMaterial;
+
+    GameObject SpawnPreviewQuad(GraffitiData data, Texture2D texture, Transform parentOverride = null, bool createAnchor = false)
+    {
+        if (texture == null) return null;
+
+        var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = "GraffitiPreview_" + data.id;
+
+        Transform parent = parentOverride;
+        ARAnchor anchor = null;
+        if (createAnchor && anchorManager)
+        {
+            Pose pose = new Pose(data.position, data.rotation);
+            anchor = anchorManager.TryAddAnchor(pose);
+            if (!anchor && painter && painter.lockedPlane)
+                anchor = anchorManager.AttachAnchor(painter.lockedPlane, pose);
+
+            if (anchor) parent = anchor.transform;
+            if (anchor) _galleryAnchors.Add(anchor);
+        }
+
+        if (!parent)
+            parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
+
+        if (parent)
+            quad.transform.SetParent(parent, worldPositionStays: true);
+
+        quad.transform.position = data.position;
+        quad.transform.rotation = data.rotation;
+        quad.transform.localScale = data.localScale;
+
+        var mr = quad.GetComponent<MeshRenderer>();
+
+        // Remove collider so previews never block raycasts/painting.
+        var collider = quad.GetComponent<Collider>();
+        if (collider) Destroy(collider);
+
+        Material mat = null;
+        if (previewQuadMaterial && previewQuadMaterial.shader)
+        {
+            mat = new Material(previewQuadMaterial);
+        }
+        else
+        {
+            // Build a resilient fallback so we never crash if a shader is stripped on device builds.
+            string[] shaderNames =
+            {
+                "Unlit/Texture",
+                "Unlit/Transparent",
+                "Sprites/Default",
+                "UI/Default",
+                "Universal Render Pipeline/Unlit",
+                "Standard"
+            };
+
+            Shader shader = null;
+            foreach (var name in shaderNames)
+            {
+                shader = Shader.Find(name);
+                if (shader) break;
+            }
+
+            if (shader)
+            {
+                mat = new Material(shader);
+            }
+            else if (mr && mr.sharedMaterial && mr.sharedMaterial.shader)
+            {
+                mat = new Material(mr.sharedMaterial);
+            }
+        }
+
+        if (mat)
+        {
+            mat.mainTexture = texture;
+            // Favor double-sided unlit so the preview is always visible and lit correctly.
+            if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+            mr.material = mat;
+        }
+        else
+        {
+            Debug.LogWarning("[SpawnPreviewQuad] Unable to create material for preview quad; using default renderer material.");
+            if (mr && mr.material) mr.material.mainTexture = texture;
+        }
+
+        return quad;
     }
 
     /// <summary>
@@ -770,6 +1154,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnUndo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnUndo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnUndo));
+                    HandleUndoAction();
                 });
 
 #if UNITY_EDITOR
@@ -831,6 +1216,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnRedo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnRedo.onClick.AddListener(() => {
                     StartCoroutine(ButtonClickFeedback(btnRedo));
+                    HandleRedoAction();
                 });
 
 #if UNITY_EDITOR
@@ -931,11 +1317,14 @@ public class AppStateControllerPhone : MonoBehaviour
             SetButtonIcon(btnGallery, "gallery");
         }
 
-        // Bind click event (TODO)
+        // Bind click event
         btnGallery.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
         btnGallery.onClick.AddListener(() => {
             StartCoroutine(ButtonClickFeedback(btnGallery));
+            OpenGallery();
         });
+
+        btnGallery.interactable = false; // enabled when data exists
     }
 
     /// <summary>
@@ -1012,18 +1401,19 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         bool shouldShow = false;
 
+        bool hasVisibleStrokes = painter ? painter.HasVisibleStrokes : HasGraffitiStrokes();
+
         if (_phase == Phase.Painting)
         {
             shouldShow = true;
         }
         else if (_phase == Phase.PlaneSelected)
         {
-            shouldShow = HasGraffitiStrokes();
+            shouldShow = hasVisibleStrokes;
         }
 
-        // Check if there are strokes to undo/redo
-        bool canUndo = HasGraffitiStrokes();
-        bool canRedo = false; // TODO: Implement redo stack tracking
+        bool canUndo = painter ? painter.CanUndo : hasVisibleStrokes;
+        bool canRedo = painter ? painter.CanRedo : false;
 
 #if UNITY_EDITOR
         if (btnUndo != null)
@@ -1059,6 +1449,20 @@ public class AppStateControllerPhone : MonoBehaviour
 #endif
     }
 
+    void HandleUndoAction()
+    {
+        if (!painter) return;
+        painter.UndoLastStroke();
+        UpdateUndoRedoButtonsVisibility();
+    }
+
+    void HandleRedoAction()
+    {
+        if (!painter) return;
+        painter.RedoStroke();
+        UpdateUndoRedoButtonsVisibility();
+    }
+
     /// <summary>
     /// Toggle the visibility of Panel_Tools when ColorPalette button is clicked
     /// </summary>
@@ -1084,7 +1488,7 @@ public class AppStateControllerPhone : MonoBehaviour
     }
 
     // ========================= PLANE EVENTS/VISUALS =========================
-    void OnPlanesChanged(ARPlanesChangedEventArgs args)
+    void OnPlanesChanged(ARTrackablesChangedEventArgs<ARPlane> args)
     {
         if (_phase != Phase.Scanning) return;
 
@@ -1110,11 +1514,41 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
+    void HideAllOtherPlanes(ARPlane keep)
+    {
+        if (!planeManager) return;
+
+        var keepRoot = GetRootPlane(keep);
+        foreach (var p in planeManager.trackables)
+        {
+            var root = GetRootPlane(p);
+            if (root == keepRoot)
+            {
+                var mr = p.GetComponent<MeshRenderer>();
+                if (mr) mr.enabled = true;
+            }
+            else
+            {
+                p.gameObject.SetActive(false);
+            }
+        }
+    }
+
 
     void TogglePlaneMesh(bool visible)
     {
+        if (planeFilter)
+        {
+            if (visible) planeFilter.RefreshVisibility();
+            else planeFilter.ForceHideAllMeshes();
+            return;
+        }
+
         foreach (var p in planeManager.trackables)
         {
+            if (visible && !p.gameObject.activeSelf)
+                p.gameObject.SetActive(true);
+
             var mr = p.GetComponent<MeshRenderer>();
             if (mr) mr.enabled = visible;
         }
@@ -1184,6 +1618,14 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         if (_frozenBorderGO) Destroy(_frozenBorderGO);
         _frozenBorderGO = null;
+    }
+
+    static string SanitizeForPath(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        foreach (var ch in Path.GetInvalidFileNameChars())
+            raw = raw.Replace(ch.ToString(), "_");
+        return raw.Replace("@", "_at_");
     }
 
     // ========================= HELPERS =========================
