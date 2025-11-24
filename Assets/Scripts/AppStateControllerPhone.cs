@@ -73,12 +73,6 @@ public class AppStateControllerPhone : MonoBehaviour
             painter.StrokeHistoryChanged -= UpdateUndoRedoButtonsVisibility;
     }
 
-    void OnDestroy()
-    {
-        if (painter)
-            painter.StrokeHistoryChanged -= UpdateUndoRedoButtonsVisibility;
-    }
-
     void Awake()
     {
         btnScan.onClick.AddListener(() => {
@@ -743,7 +737,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         yield return null; // allow UI feedback frame
 
-        if (!painter.TryCaptureSnapshot(out var snapshot, out var boundsWorld))
+        if (!painter.TryCaptureStrokeSnapshot(out var snapshot, out var boundsWorld))
         {
             Debug.LogWarning("[SaveGraffiti] Unable to capture strokes.");
             yield break;
