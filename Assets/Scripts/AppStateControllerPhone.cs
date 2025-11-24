@@ -61,11 +61,11 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OnEnable()
     {
-        if (planeManager) planeManager.trackablesChanged += OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.AddListener(OnPlanesChanged);
     }
     void OnDisable()
     {
-        if (planeManager) planeManager.trackablesChanged -= OnPlanesChanged;
+        if (planeManager) planeManager.trackablesChanged.RemoveListener(OnPlanesChanged);
     }
 
     void OnDestroy()
@@ -302,6 +302,10 @@ public class AppStateControllerPhone : MonoBehaviour
             planeFilter.ResetFilterForScan();
 
         if (painter)
+        {
+            painter.ClearAllStrokes();
+        }
+        else if (strokesRoot)
         {
             painter.ClearAllStrokes();
         }
@@ -753,7 +757,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         yield return null; // allow UI feedback frame
 
-        if (!painter.TryCaptureStrokeSnapshot(out var snapshot, out var boundsWorld))
+        if (!painter.TryCaptureStrokeTexture(out var snapshot, out var boundsWorld))
         {
             Debug.LogWarning("[SaveGraffiti] Unable to capture strokes.");
             yield break;
@@ -927,12 +931,25 @@ public class AppStateControllerPhone : MonoBehaviour
         if (createAnchor && anchorManager)
         {
             Pose pose = new Pose(data.position, data.rotation);
-            anchor = anchorManager.TryAddAnchor(pose);
-            if (!anchor && painter && painter.lockedPlane)
-                anchor = anchorManager.AttachAnchor(painter.lockedPlane, pose);
 
-            if (anchor) parent = anchor.transform;
-            if (anchor) _galleryAnchors.Add(anchor);
+            if (painter && painter.lockedPlane)
+            {
+                anchor = anchorManager.AttachAnchor(painter.lockedPlane, pose);
+            }
+
+            if (!anchor)
+            {
+                var anchorGO = new GameObject($"PreviewAnchor_{data.id}");
+                anchorGO.transform.SetPositionAndRotation(pose.position, pose.rotation);
+                anchorGO.transform.SetParent(anchorManager.transform, worldPositionStays: true);
+                anchor = anchorGO.AddComponent<ARAnchor>();
+            }
+
+            if (anchor)
+            {
+                parent = anchor.transform;
+                _galleryAnchors.Add(anchor);
+            }
         }
 
         if (!parent)
