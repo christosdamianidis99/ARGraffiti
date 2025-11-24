@@ -327,6 +327,190 @@ public class PhonePainter : MonoBehaviour
 
             RecordStrokeInHistory(_strokeParent);
         }
+
+        stroke.gameObject.SetActive(true);
+        _strokeHistory.Add(stroke);
+        _historyCursor = _strokeHistory.Count;
+        StrokeHistoryChanged?.Invoke();
+    }
+
+    public bool TryCalculateStrokeBounds(out Bounds bounds)
+    {
+        bounds = default;
+        var root = strokesRoot ? strokesRoot : transform;
+        bool hasBounds = false;
+
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!r || !r.gameObject.activeInHierarchy) continue;
+            if (!r.GetComponentInParent<StrokeMeta>()) continue;
+
+            if (!hasBounds)
+            {
+                bounds = r.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    public bool TryCaptureStrokeTexture(out Texture2D snapshot, out Bounds boundsWorld, int resolution = 1024, float paddingMeters = 0.05f)
+    {
+        snapshot = null;
+        boundsWorld = default;
+
+        if (!TryCalculateStrokeBounds(out boundsWorld))
+            return false;
+
+        var normal = _lockedPlaneTransform ? _lockedPlaneTransform.up : Vector3.up;
+        var center = boundsWorld.center;
+
+        float maxSize = Mathf.Max(boundsWorld.size.x, boundsWorld.size.z);
+        float orthoSize = Mathf.Max(0.05f, maxSize * 0.5f + paddingMeters);
+        float camDist = Mathf.Max(boundsWorld.extents.magnitude + paddingMeters * 2f, 0.5f);
+
+        var camGO = new GameObject("StrokeCaptureCamera");
+        var cam = camGO.AddComponent<Camera>();
+        cam.enabled = false;
+        cam.orthographic = true;
+        cam.orthographicSize = orthoSize;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0, 0, 0, 0);
+        cam.nearClipPlane = 0.01f;
+        cam.farClipPlane = camDist * 4f;
+        cam.forceIntoRenderTexture = true;
+        cam.allowHDR = false;
+        cam.allowMSAA = false;
+        cam.cullingMask = _paintLayerIndex >= 0 ? (1 << _paintLayerIndex) : ~0;
+
+        cam.transform.position = center + normal * camDist;
+        cam.transform.rotation = Quaternion.LookRotation(-normal, Vector3.up);
+
+        var rt = new RenderTexture(resolution, resolution, 16, RenderTextureFormat.ARGB32);
+        rt.Create();
+
+        var prevActive = RenderTexture.active;
+        cam.targetTexture = rt;
+        RenderTexture.active = rt;
+        cam.Render();
+
+        snapshot = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false, true);
+        snapshot.ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
+        snapshot.Apply();
+
+        cam.targetTexture = null;
+        RenderTexture.active = prevActive;
+
+        rt.Release();
+        Destroy(rt);
+        Destroy(camGO);
+
+        return true;
+    }
+
+    void PushStrokeToHistory(Transform stroke)
+    {
+        if (!stroke) return;
+
+        if (_historyCursor < _strokeHistory.Count)
+        {
+            for (int i = _historyCursor; i < _strokeHistory.Count; i++)
+            {
+                var staleStroke = _strokeHistory[i];
+                if (staleStroke)
+                    Destroy(staleStroke.gameObject);
+            }
+            _strokeHistory.RemoveRange(_historyCursor, _strokeHistory.Count - _historyCursor);
+        }
+
+        stroke.gameObject.SetActive(true);
+        _strokeHistory.Add(stroke);
+        _historyCursor = _strokeHistory.Count;
+        StrokeHistoryChanged?.Invoke();
+    }
+
+    public bool TryCalculateStrokeBounds(out Bounds bounds)
+    {
+        bounds = default;
+        var root = strokesRoot ? strokesRoot : transform;
+        bool hasBounds = false;
+
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!r || !r.gameObject.activeInHierarchy) continue;
+            if (!r.GetComponentInParent<StrokeMeta>()) continue;
+
+            if (!hasBounds)
+            {
+                bounds = r.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    public bool TryCaptureStrokeTexture(out Texture2D snapshot, out Bounds boundsWorld, int resolution = 1024, float paddingMeters = 0.05f)
+    {
+        snapshot = null;
+        boundsWorld = default;
+
+        if (!TryCalculateStrokeBounds(out boundsWorld))
+            return false;
+
+        var normal = _lockedPlaneTransform ? _lockedPlaneTransform.up : Vector3.up;
+        var center = boundsWorld.center;
+
+        float maxSize = Mathf.Max(boundsWorld.size.x, boundsWorld.size.z);
+        float orthoSize = Mathf.Max(0.05f, maxSize * 0.5f + paddingMeters);
+        float camDist = Mathf.Max(boundsWorld.extents.magnitude + paddingMeters * 2f, 0.5f);
+
+        var camGO = new GameObject("StrokeCaptureCamera");
+        var cam = camGO.AddComponent<Camera>();
+        cam.enabled = false;
+        cam.orthographic = true;
+        cam.orthographicSize = orthoSize;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0, 0, 0, 0);
+        cam.nearClipPlane = 0.01f;
+        cam.farClipPlane = camDist * 4f;
+        cam.forceIntoRenderTexture = true;
+        cam.allowHDR = false;
+        cam.allowMSAA = false;
+        cam.cullingMask = _paintLayerIndex >= 0 ? (1 << _paintLayerIndex) : ~0;
+
+        cam.transform.position = center + normal * camDist;
+        cam.transform.rotation = Quaternion.LookRotation(-normal, Vector3.up);
+
+        var rt = new RenderTexture(resolution, resolution, 16, RenderTextureFormat.ARGB32);
+        rt.Create();
+
+        var prevActive = RenderTexture.active;
+        cam.targetTexture = rt;
+        RenderTexture.active = rt;
+        cam.Render();
+
+        snapshot = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false, true);
+        snapshot.ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
+        snapshot.Apply();
+
+        cam.targetTexture = null;
+        RenderTexture.active = prevActive;
+
+        rt.Release();
+        Destroy(rt);
+        Destroy(camGO);
+
+        return true;
     }
 
     void RecordStrokeInHistory(Transform stroke)
