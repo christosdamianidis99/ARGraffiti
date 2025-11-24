@@ -37,7 +37,9 @@ public class AppStateControllerPhone : MonoBehaviour
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
 
-    GalleryController _galleryController;
+    readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
+    readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
+    bool _galleryVisible;
 
     // State
     Phase _phase = Phase.Idle;
@@ -291,10 +293,16 @@ public class AppStateControllerPhone : MonoBehaviour
         DestroyAnchorIfAny();
         DestroyFrozenBorder();
 
+        ClearGalleryPreviews();
+
         if (planeFilter)
             planeFilter.ResetFilterForScan();
 
         if (painter)
+        {
+            painter.ClearAllStrokes();
+        }
+        else if (strokesRoot)
         {
             painter.ClearAllStrokes();
         }
@@ -477,7 +485,16 @@ public class AppStateControllerPhone : MonoBehaviour
         // Choose ONE primary plane after a short stable dwell
         if (_primaryScanPlane == null)
         {
-            if (reticle.isOverAnyPlane && reticle.planeUnderReticle != null)
+            if (planeFilter && planeFilter.PrimaryIsStable())
+            {
+                _primaryScanPlane = GetRootPlane(planeFilter.PrimaryPlane);
+                if (_primaryScanPlane)
+                {
+                    ShowOnlyPlane(_primaryScanPlane);
+                    SetTip("Move phone to grow this surface. Then press Select Surface.");
+                }
+            }
+            else if (reticle.isOverAnyPlane && reticle.planeUnderReticle != null)
             {
                 if (_reticleStableStart < 0) _reticleStableStart = Time.realtimeSinceStartupAsDouble;
 
@@ -538,6 +555,10 @@ public class AppStateControllerPhone : MonoBehaviour
             if (_currentAnchor && strokesRoot)
                 _currentAnchor.transform.SetParent(strokesRoot, worldPositionStays: true);
         }
+
+        HideAllOtherPlanes(plane);
+        if (planeManager)
+            planeManager.requestedDetectionMode = PlaneDetectionMode.None;
 
         // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
@@ -697,24 +718,13 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OpenGallery()
     {
-        string ownerEmail = CurrentOwnerEmail();
-        if (GraffitiRepository.I == null || !GraffitiRepository.I.HasForOwner(ownerEmail))
+        if (_galleryVisible)
         {
-            SetTip("No saved graffiti yet.");
+            HideGalleryPreviews();
             return;
         }
 
-        if (!_galleryController)
-            _galleryController = FindObjectOfType<GalleryController>(true);
-
-        if (!_galleryController)
-        {
-            var go = new GameObject("GalleryController");
-            _galleryController = go.AddComponent<GalleryController>();
-        }
-
-        _galleryController.SetOwnerFilter(ownerEmail);
-        _galleryController.Show();
+        ShowGalleryInAR();
     }
 
     IEnumerator SaveGraffitiRoutine()
@@ -734,6 +744,7 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         string id = Guid.NewGuid().ToString("N");
+
         string ownerEmail = AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
         string ownerName = AuthManager.Instance ? AuthManager.Instance.DisplayName : string.Empty;
         string userFolder = string.IsNullOrEmpty(ownerEmail) ? "guest" : SanitizeForPath(ownerEmail);
@@ -761,7 +772,14 @@ public class AppStateControllerPhone : MonoBehaviour
         var poseSource = _currentAnchor ? _currentAnchor.transform : (painter.lockedPlane ? painter.lockedPlane.transform : null);
         Quaternion rotation = poseSource ? poseSource.rotation : Quaternion.identity;
         Vector3 position = boundsWorld.center;
-        Vector3 localScale = new Vector3(Mathf.Max(0.1f, boundsWorld.size.x), Mathf.Max(0.1f, boundsWorld.size.z), 1f);
+
+        // Compute width/height in the plane's tangent space so vertical walls scale correctly.
+        Vector3 planeRight = rotation * Vector3.right;
+        Vector3 planeForward = rotation * Vector3.forward;
+        Vector3 ext = boundsWorld.extents;
+        float halfWidth = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeRight.x), Mathf.Abs(planeRight.y), Mathf.Abs(planeRight.z)));
+        float halfHeight = Vector3.Dot(ext, new Vector3(Mathf.Abs(planeForward.x), Mathf.Abs(planeForward.y), Mathf.Abs(planeForward.z)));
+        Vector3 localScale = new Vector3(Mathf.Max(0.1f, halfWidth * 2f), Mathf.Max(0.1f, halfHeight * 2f), 1f);
 
         var data = new GraffitiData
         {
@@ -780,9 +798,88 @@ public class AppStateControllerPhone : MonoBehaviour
         if (GraffitiRepository.I)
             GraffitiRepository.I.AddOrUpdate(data);
 
-        SpawnPreviewQuad(data, snapshot);
+        ShowGalleryInAR(focusOnCurrentAnchor: true);
         UpdateGalleryButtonState();
-        SetTip("Saved!");
+        SetTip("Saved! Showing gallery.");
+    }
+
+    public void ShowGalleryInAR(bool focusOnCurrentAnchor = false)
+    {
+        string ownerEmail = CurrentOwnerEmail();
+        if (GraffitiRepository.I == null || !GraffitiRepository.I.HasForOwner(ownerEmail))
+        {
+            SetTip("No saved graffiti yet.");
+            return;
+        }
+
+        if (painter)
+            painter.StopPainting();
+        TogglePlaneMesh(false);
+        ClearGalleryPreviews();
+
+        var items = GraffitiRepository.I.AllForOwner(ownerEmail);
+
+        foreach (var data in items)
+        {
+            var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
+            if (!tex) continue;
+
+            Transform parent = null;
+            if (focusOnCurrentAnchor && _currentAnchor)
+                parent = _currentAnchor.transform;
+
+            var quad = SpawnPreviewQuad(data, tex, parent, createAnchor: parent == null);
+            if (quad) _galleryPreviews.Add(quad);
+        }
+
+        _galleryVisible = _galleryPreviews.Count > 0;
+        if (_galleryVisible)
+            SetTip("Showing saved graffiti in AR.");
+    }
+
+    public void HideGalleryPreviews()
+    {
+        ClearGalleryPreviews();
+        SetTip("Gallery hidden.");
+    }
+
+    void ClearGalleryPreviews()
+    {
+        foreach (var anchor in _galleryAnchors)
+        {
+            if (anchor)
+                Destroy(anchor.gameObject);
+        }
+        _galleryAnchors.Clear();
+
+        foreach (var go in _galleryPreviews)
+        {
+            if (go)
+                Destroy(go);
+        }
+        _galleryPreviews.Clear();
+        _galleryVisible = false;
+    }
+
+    Texture2D LoadTextureFromDisk(string primary, string fallback = null)
+    {
+        string path = (!string.IsNullOrEmpty(primary) && File.Exists(primary)) ? primary :
+            (!string.IsNullOrEmpty(fallback) && File.Exists(fallback) ? fallback : null);
+
+        if (string.IsNullOrEmpty(path)) return null;
+
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+            tex.LoadImage(bytes);
+            return tex;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Gallery] Failed to load texture from {path}: {ex.Message}");
+            return null;
+        }
     }
 
     Texture2D CreateThumbnail(Texture2D source, int size)
@@ -800,21 +897,31 @@ public class AppStateControllerPhone : MonoBehaviour
         return thumb;
     }
 
-
     [Header("Preview Rendering")]
     [Tooltip("Material used for in-world graffiti previews; if null, a safe Unlit material is created at runtime.")]
     public Material previewQuadMaterial;
 
-    void SpawnPreviewQuad(GraffitiData data, Texture2D texture)
+    GameObject SpawnPreviewQuad(GraffitiData data, Texture2D texture, Transform parentOverride = null, bool createAnchor = false)
     {
-        if (texture == null) return;
+        if (texture == null) return null;
 
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GraffitiPreview_" + data.id;
 
-        Transform parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
+        Transform parent = parentOverride;
+        ARAnchor anchor = null;
+        if (createAnchor && anchorManager)
+        {
+            anchor = anchorManager.AddAnchor(new Pose(data.position, data.rotation));
+            if (anchor) parent = anchor.transform;
+            if (anchor) _galleryAnchors.Add(anchor);
+        }
+
+        if (!parent)
+            parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
+
         if (parent)
-            quad.transform.SetParent(parent, worldPositionStays: false);
+            quad.transform.SetParent(parent, worldPositionStays: true);
 
         quad.transform.position = data.position;
         quad.transform.rotation = data.rotation;
@@ -822,23 +929,40 @@ public class AppStateControllerPhone : MonoBehaviour
 
         var mr = quad.GetComponent<MeshRenderer>();
 
+        // Remove collider so previews never block raycasts/painting.
+        var collider = quad.GetComponent<Collider>();
+        if (collider) Destroy(collider);
+
         Material mat = null;
-        if (previewQuadMaterial)
+        if (previewQuadMaterial && previewQuadMaterial.shader)
         {
             mat = new Material(previewQuadMaterial);
         }
         else
         {
             // Build a resilient fallback so we never crash if a shader is stripped on device builds.
-            Shader shader = Shader.Find("Unlit/Texture");
-            if (!shader) shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (!shader) shader = Shader.Find("Standard");
+            string[] shaderNames =
+            {
+                "Unlit/Texture",
+                "Unlit/Transparent",
+                "Sprites/Default",
+                "UI/Default",
+                "Universal Render Pipeline/Unlit",
+                "Standard"
+            };
+
+            Shader shader = null;
+            foreach (var name in shaderNames)
+            {
+                shader = Shader.Find(name);
+                if (shader) break;
+            }
 
             if (shader)
             {
                 mat = new Material(shader);
             }
-            else if (mr && mr.sharedMaterial)
+            else if (mr && mr.sharedMaterial && mr.sharedMaterial.shader)
             {
                 mat = new Material(mr.sharedMaterial);
             }
@@ -847,6 +971,8 @@ public class AppStateControllerPhone : MonoBehaviour
         if (mat)
         {
             mat.mainTexture = texture;
+            // Favor double-sided unlit so the preview is always visible and lit correctly.
+            if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
             mr.material = mat;
         }
         else
@@ -854,6 +980,8 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[SpawnPreviewQuad] Unable to create material for preview quad; using default renderer material.");
             if (mr && mr.material) mr.material.mainTexture = texture;
         }
+
+        return quad;
     }
 
     /// <summary>
@@ -1372,6 +1500,26 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
+    void HideAllOtherPlanes(ARPlane keep)
+    {
+        if (!planeManager) return;
+
+        var keepRoot = GetRootPlane(keep);
+        foreach (var p in planeManager.trackables)
+        {
+            var root = GetRootPlane(p);
+            if (root == keepRoot)
+            {
+                var mr = p.GetComponent<MeshRenderer>();
+                if (mr) mr.enabled = true;
+            }
+            else
+            {
+                p.gameObject.SetActive(false);
+            }
+        }
+    }
+
 
     void TogglePlaneMesh(bool visible)
     {
@@ -1384,6 +1532,9 @@ public class AppStateControllerPhone : MonoBehaviour
 
         foreach (var p in planeManager.trackables)
         {
+            if (visible && !p.gameObject.activeSelf)
+                p.gameObject.SetActive(true);
+
             var mr = p.GetComponent<MeshRenderer>();
             if (mr) mr.enabled = visible;
         }
