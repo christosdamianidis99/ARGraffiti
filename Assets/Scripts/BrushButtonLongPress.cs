@@ -62,7 +62,7 @@ public class BrushButtonLongPress : MonoBehaviour
         // Find AppStateControllerPhone in Start (could be not initialized in Awake)
         if (appStateController == null)
         {
-            appStateController = FindObjectOfType<AppStateControllerPhone>();
+            appStateController = FindFirstObjectByType<AppStateControllerPhone>();
             if (appStateController == null)
             {
                 Debug.LogWarning("BrushButtonLongPress: AppStateControllerPhone not found in Start!");
@@ -72,7 +72,7 @@ public class BrushButtonLongPress : MonoBehaviour
         // Find PhonePainter to set shape
         if (painter == null)
         {
-            painter = FindObjectOfType<PhonePainter>();
+            painter = FindFirstObjectByType<PhonePainter>();
             if (painter == null)
             {
                 Debug.LogWarning("BrushButtonLongPress: PhonePainter not found in Start!");
