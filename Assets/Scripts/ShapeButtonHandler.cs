@@ -23,7 +23,7 @@ public class ShapeButtonHandler : MonoBehaviour
         // Find PhonePainter if not assigned
         if (painter == null)
         {
-            painter = FindObjectOfType<PhonePainter>();
+            painter = FindFirstObjectByType<PhonePainter>();
             if (painter == null)
             {
                 Debug.LogWarning($"ShapeButtonHandler ({gameObject.name}): PhonePainter not found!");
