@@ -49,7 +49,7 @@ public class ReticleDot : MonoBehaviour
         // Try to find painter if not assigned
         if (painter == null)
         {
-            painter = FindObjectOfType<PhonePainter>();
+            painter = FindFirstObjectByType<PhonePainter>();
         }
 
         // Try to find camera if not assigned
@@ -58,7 +58,7 @@ public class ReticleDot : MonoBehaviour
             arCamera = Camera.main;
             if (arCamera == null)
             {
-                arCamera = FindObjectOfType<Camera>();
+                arCamera = FindAnyObjectByType<Camera>();
             }
         }
     }
@@ -80,16 +80,25 @@ public class ReticleDot : MonoBehaviour
 
     void Update()
     {
-        var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-        isOverAnyPlane = rc.Raycast(center, hits, TrackableType.PlaneWithinPolygon);
-        if (isOverAnyPlane)
+        // Skip raycasts until the AR session is actually tracking to avoid spamming ARCore with invalid hits.
+        if (ARSession.state == ARSessionState.SessionTracking)
         {
-            var h = hits[0];
-            planeUnderReticle = h.trackable as ARPlane;
-            lastHitPose = h.pose;
+            var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            isOverAnyPlane = rc.Raycast(center, hits, TrackableType.PlaneWithinPolygon);
+            if (isOverAnyPlane)
+            {
+                var h = hits[0];
+                planeUnderReticle = h.trackable as ARPlane;
+                lastHitPose = h.pose;
+            }
+            else
+            {
+                planeUnderReticle = null;
+            }
         }
         else
         {
+            isOverAnyPlane = false;
             planeUnderReticle = null;
         }
 
