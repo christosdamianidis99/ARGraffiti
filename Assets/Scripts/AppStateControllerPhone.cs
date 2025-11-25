@@ -956,12 +956,11 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
+                    yield return WaitForTrackingReady(3f);
+
         try
         {
-            // Ensure AR tracking is active before we try to place anchors. If tracking is
-            // paused (e.g., app just resumed), building now could leave previews at
-            // stale poses.
-            yield return WaitForTrackingReady(3f);
+
 
             if (_repo == null)
             {
@@ -1036,8 +1035,7 @@ public class AppStateControllerPhone : MonoBehaviour
                     break;
                 }
 
-                // Spread work across frames so the UI never freezes when many entries exist.
-                yield return null;
+              
             }
 
             _galleryVisible = _galleryPreviews.Count > 0;
@@ -1072,6 +1070,7 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             _galleryRoutine = null;
         }
+        yield return null;
     }
 
     bool IsFinite(Vector3 v)
