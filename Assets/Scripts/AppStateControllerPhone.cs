@@ -939,6 +939,11 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
+        // Ensure AR tracking is active before we try to place anchors. If tracking is
+        // paused (e.g., app just resumed), building now could leave previews at
+        // stale poses.
+        yield return WaitForTrackingReady(3f);
+
         if (_repo == null)
         {
             SetTip("No saved graffiti yet.");
@@ -980,6 +985,12 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             try
             {
+                if (!IsFinite(data.position) || !IsFinite(data.localScale))
+                {
+                    Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                    continue;
+                }
+
                 var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
                 if (tex)
                 {
@@ -1032,6 +1043,11 @@ public class AppStateControllerPhone : MonoBehaviour
         SetTip("Showing saved graffiti in AR.");
     }
 
+    bool IsFinite(Vector3 v)
+    {
+        return float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
+    }
+
     void StopGalleryRoutine()
     {
         if (_galleryRoutine != null)
@@ -1043,12 +1059,30 @@ public class AppStateControllerPhone : MonoBehaviour
 
     ARAnchor CreateWorldAnchor(Pose pose)
     {
-        if (!anchorManager) return null;
+        if (!anchorManager)
+        {
+            Debug.LogWarning("[Gallery] No ARAnchorManager available to create anchors.");
+            return null;
+        }
 
+        // Prefer the ARAnchorManager APIs so anchors remain tracked by the subsystem.
+        var anchor = anchorManager.AddAnchor(pose);
+        if (anchor)
+        {
+            return anchor;
+        }
+
+        // Fallback: manual GameObject to avoid hard failure when AddAnchor is not
+        // supported on the current platform/configuration. This still keeps the
+        // preview transform in the right place relative to the session origin.
         var go = new GameObject("WorldAnchor");
         go.transform.SetPositionAndRotation(pose.position, pose.rotation);
         go.transform.SetParent(anchorManager.transform, worldPositionStays: true);
-        var anchor = go.AddComponent<ARAnchor>();
+        anchor = go.AddComponent<ARAnchor>();
+
+        if (!anchor || !anchor.enabled)
+            Debug.LogWarning("[Gallery] Falling back to untracked world anchor.");
+
         return anchor;
     }
 
@@ -1142,6 +1176,11 @@ public class AppStateControllerPhone : MonoBehaviour
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GraffitiPreview_" + data.id;
 
+        // Match the paint layer so the AR camera culling mask always renders the
+        // previews even if the default layer is hidden in the scene.
+        if (painter && painter.strokesRoot)
+            quad.layer = painter.strokesRoot.gameObject.layer;
+
         Transform parent = parentOverride;
         ARAnchor anchor = null;
         if (createAnchor && anchorManager)
@@ -1165,6 +1204,8 @@ public class AppStateControllerPhone : MonoBehaviour
         quad.transform.position = data.position;
         quad.transform.rotation = data.rotation;
         quad.transform.localScale = data.localScale;
+
+        Debug.Log($"[Gallery] Preview {data.id} at {data.position} rot {data.rotation.eulerAngles} scale {data.localScale}");
 
         var mr = quad.GetComponent<MeshRenderer>();
 
