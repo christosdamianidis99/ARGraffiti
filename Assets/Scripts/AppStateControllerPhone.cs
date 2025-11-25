@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
@@ -754,7 +755,10 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OpenGallery()
     {
-        if (_galleryVisible)
+        // Treat an in-flight build as "open" so a second tap cancels cleanly
+        // instead of queueing another coroutine and leaving the UI in a weird
+        // state when the user quickly toggles the gallery button.
+        if (_galleryVisible || _galleryRoutine != null)
         {
             HideGalleryPreviews();
             return;
@@ -845,6 +849,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
+        Debug.Log("[Gallery] Request to show gallery");
         string ownerEmail = CurrentOwnerEmail();
         EnsureRepository();
         if (_repo == null || !_repo.HasForOwner(ownerEmail))
@@ -937,16 +942,82 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
+        // Ensure AR tracking is active before we try to place anchors. If tracking is
+        // paused (e.g., app just resumed), building now could leave previews at
+        // stale poses.
+        yield return WaitForTrackingReady(3f);
+
+        if (_repo == null)
+        {
+            SetTip("No saved graffiti yet.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        IReadOnlyList<GraffitiData> items = null;
+        try
+        {
+            items = _repo.AllForOwner(ownerEmail);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Gallery] Failed to read repository: {ex.Message}");
+            SetTip("Gallery unavailable. Returning to AR view.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        if (items == null || items.Count == 0)
+        {
+            Debug.Log("[Gallery] No entries for owner; aborting gallery build.");
+            SetTip("No saved graffiti yet.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        Debug.Log($"[Gallery] Building {items.Count} previews (forceCreateAnchors={forceCreateAnchors})");
+
+        // Make the routine resilient so we never leave the app stuck in Gallery
+        // mode if something unexpected happens while spawning previews.
+        System.Exception failure = null;
+
         bool createAnchors = forceCreateAnchors || _currentAnchor == null;
-        var items = _repo.AllForOwner(ownerEmail);
+        int spawned = 0;
 
         foreach (var data in items)
         {
-            var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
-            if (tex)
+            try
             {
-                var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
-                if (quad) _galleryPreviews.Add(quad);
+                if (!IsFinite(data.position) || !IsFinite(data.localScale))
+                {
+                    Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                    continue;
+                }
+
+                var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
+                if (tex)
+                {
+                    var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
+                    if (quad)
+                    {
+                        _galleryPreviews.Add(quad);
+                        spawned++;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Gallery] SpawnPreviewQuad returned null for {data.id}");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Gallery] Failed to spawn preview for {data.id}: {ex.Message}");
+                failure = ex;
+                break;
             }
 
             // Spread work across frames so the UI never freezes when many entries exist.
@@ -956,14 +1027,28 @@ public class AppStateControllerPhone : MonoBehaviour
         _galleryRoutine = null;
         _galleryVisible = _galleryPreviews.Count > 0;
 
+        if (failure != null)
+        {
+            SetTip("Gallery unavailable. Returning to AR view.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
         if (!_galleryVisible)
         {
+            Debug.LogWarning("[Gallery] No previews were created; returning to AR view.");
             SetTip("No saved graffiti yet.");
             RestoreAfterGallery();
             yield break;
         }
 
+        Debug.Log($"[Gallery] Spawned {spawned} previews.");
         SetTip("Showing saved graffiti in AR.");
+    }
+
+    bool IsFinite(Vector3 v)
+    {
+        return float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
     }
 
     void StopGalleryRoutine()
@@ -977,12 +1062,66 @@ public class AppStateControllerPhone : MonoBehaviour
 
     ARAnchor CreateWorldAnchor(Pose pose)
     {
-        if (!anchorManager) return null;
+        if (!anchorManager)
+        {
+            Debug.LogWarning("[Gallery] No ARAnchorManager available to create anchors.");
+            return null;
+        }
 
+        // Prefer the ARAnchorManager APIs so anchors remain tracked by the subsystem.
+        ARAnchor anchor = null;
+
+        // Handle ARFoundation 6 signatures that return bool via out parameter as
+        // well as older return-value signatures.
+        var methods = anchorManager.GetType().GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        foreach (var method in methods)
+        {
+            if (!string.Equals(method.Name, "TryAddAnchor", StringComparison.Ordinal))
+                continue;
+
+            var parameters = method.GetParameters();
+            if (parameters.Length == 1 && parameters[0].ParameterType == typeof(Pose))
+            {
+                anchor = method.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+            }
+            else if (parameters.Length == 2 &&
+                     parameters[0].ParameterType == typeof(Pose) &&
+                     parameters[1].ParameterType == typeof(ARAnchor).MakeByRefType())
+            {
+                object[] args = { pose, null };
+                var result = method.Invoke(anchorManager, args);
+                var candidate = args[1] as ARAnchor;
+                bool success = (result is bool b && b) || candidate != null;
+                if (success)
+                    anchor = candidate;
+            }
+
+            if (anchor)
+                break;
+        }
+
+        if (!anchor)
+        {
+            var addAnchor = anchorManager.GetType().GetMethod("AddAnchor", new[] { typeof(Pose) });
+            if (addAnchor != null)
+                anchor = addAnchor.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+        }
+        if (anchor)
+        {
+            return anchor;
+        }
+
+        // Fallback: manual GameObject to avoid hard failure when AddAnchor is not
+        // supported on the current platform/configuration. This still keeps the
+        // preview transform in the right place relative to the session origin.
         var go = new GameObject("WorldAnchor");
         go.transform.SetPositionAndRotation(pose.position, pose.rotation);
         go.transform.SetParent(anchorManager.transform, worldPositionStays: true);
-        var anchor = go.AddComponent<ARAnchor>();
+        anchor = go.AddComponent<ARAnchor>();
+
+        if (!anchor || !anchor.enabled)
+            Debug.LogWarning("[Gallery] Falling back to untracked world anchor.");
+
         return anchor;
     }
 
@@ -1076,6 +1215,11 @@ public class AppStateControllerPhone : MonoBehaviour
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GraffitiPreview_" + data.id;
 
+        // Match the paint layer so the AR camera culling mask always renders the
+        // previews even if the default layer is hidden in the scene.
+        if (painter && painter.strokesRoot)
+            quad.layer = painter.strokesRoot.gameObject.layer;
+
         Transform parent = parentOverride;
         ARAnchor anchor = null;
         if (createAnchor && anchorManager)
@@ -1099,6 +1243,8 @@ public class AppStateControllerPhone : MonoBehaviour
         quad.transform.position = data.position;
         quad.transform.rotation = data.rotation;
         quad.transform.localScale = data.localScale;
+
+        Debug.Log($"[Gallery] Preview {data.id} at {data.position} rot {data.rotation.eulerAngles} scale {data.localScale}");
 
         var mr = quad.GetComponent<MeshRenderer>();
 
