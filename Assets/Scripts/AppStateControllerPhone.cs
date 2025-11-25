@@ -755,7 +755,10 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OpenGallery()
     {
-        if (_galleryVisible)
+        // Treat an in-flight build as "open" so a second tap cancels cleanly
+        // instead of queueing another coroutine and leaving the UI in a weird
+        // state when the user quickly toggles the gallery button.
+        if (_galleryVisible || _galleryRoutine != null)
         {
             HideGalleryPreviews();
             return;
@@ -1068,13 +1071,36 @@ public class AppStateControllerPhone : MonoBehaviour
         // Prefer the ARAnchorManager APIs so anchors remain tracked by the subsystem.
         ARAnchor anchor = null;
 
-        // ARFoundation 6+ uses TryAddAnchor; older versions expose AddAnchor.
-        var tryAddAnchor = anchorManager.GetType().GetMethod("TryAddAnchor", new[] { typeof(Pose) });
-        if (tryAddAnchor != null)
+        // Handle ARFoundation 6 signatures that return bool via out parameter as
+        // well as older return-value signatures.
+        var methods = anchorManager.GetType().GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        foreach (var method in methods)
         {
-            anchor = tryAddAnchor.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+            if (!string.Equals(method.Name, "TryAddAnchor", StringComparison.Ordinal))
+                continue;
+
+            var parameters = method.GetParameters();
+            if (parameters.Length == 1 && parameters[0].ParameterType == typeof(Pose))
+            {
+                anchor = method.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+            }
+            else if (parameters.Length == 2 &&
+                     parameters[0].ParameterType == typeof(Pose) &&
+                     parameters[1].ParameterType == typeof(ARAnchor).MakeByRefType())
+            {
+                object[] args = { pose, null };
+                var result = method.Invoke(anchorManager, args);
+                var candidate = args[1] as ARAnchor;
+                bool success = (result is bool b && b) || candidate != null;
+                if (success)
+                    anchor = candidate;
+            }
+
+            if (anchor)
+                break;
         }
-        else
+
+        if (!anchor)
         {
             var addAnchor = anchorManager.GetType().GetMethod("AddAnchor", new[] { typeof(Pose) });
             if (addAnchor != null)
