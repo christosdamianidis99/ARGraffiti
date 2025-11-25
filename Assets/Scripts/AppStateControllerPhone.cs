@@ -937,16 +937,36 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
+        if (_repo == null)
+        {
+            SetTip("No saved graffiti yet.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        // Make the routine resilient so we never leave the app stuck in Gallery
+        // mode if something unexpected happens while spawning previews.
+        System.Exception failure = null;
+
         bool createAnchors = forceCreateAnchors || _currentAnchor == null;
         var items = _repo.AllForOwner(ownerEmail);
 
         foreach (var data in items)
         {
-            var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
-            if (tex)
+            try
             {
-                var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
-                if (quad) _galleryPreviews.Add(quad);
+                var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
+                if (tex)
+                {
+                    var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
+                    if (quad) _galleryPreviews.Add(quad);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Gallery] Failed to spawn preview for {data.id}: {ex.Message}");
+                failure = ex;
+                break;
             }
 
             // Spread work across frames so the UI never freezes when many entries exist.
@@ -955,6 +975,13 @@ public class AppStateControllerPhone : MonoBehaviour
 
         _galleryRoutine = null;
         _galleryVisible = _galleryPreviews.Count > 0;
+
+        if (failure != null)
+        {
+            SetTip("Gallery unavailable. Returning to AR view.");
+            RestoreAfterGallery();
+            yield break;
+        }
 
         if (!_galleryVisible)
         {
