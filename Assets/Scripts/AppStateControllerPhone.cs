@@ -6,7 +6,7 @@ using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
-public enum Phase { Idle, Scanning, PlaneSelected, Painting }
+public enum Phase { Idle, Scanning, PlaneSelected, Painting, Gallery }
 
 public class AppStateControllerPhone : MonoBehaviour
 {
@@ -43,6 +43,9 @@ public class AppStateControllerPhone : MonoBehaviour
     Coroutine _galleryRoutine;
     bool _galleryVisible;
     Phase _phaseBeforeGallery = Phase.Idle;
+    bool _planeManagerWasEnabled;
+    PlaneDetectionMode _planeManagerPrevDetectionMode = PlaneDetectionMode.None;
+    bool _reticleWasActive;
     GraffitiRepository _repo;
 
     // State
@@ -432,6 +435,15 @@ public class AppStateControllerPhone : MonoBehaviour
                 btnGraffiti.interactable = true;
                 painter.StartPainting();
                 SetTip("Graffiti ON. Keep the dot on the surface and move the phone.");
+                break;
+            case Phase.Gallery:
+                TogglePlaneMesh(false);
+                if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
+                if (btnUndo) btnUndo.gameObject.SetActive(false);
+                if (btnRedo) btnRedo.gameObject.SetActive(false);
+                if (reticle) reticle.gameObject.SetActive(false);
+                if (painter) painter.StopPainting();
+                SetTip("Loading gallery...");
                 break;
         }
 
@@ -851,6 +863,8 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(false);
         ClearGalleryPreviews();
 
+        SetPhase(Phase.Gallery);
+
         SetTip("Loading gallery...");
         _galleryVisible = true;
         _galleryRoutine = CoroutineRunner.Run(BuildGalleryRoutine(ownerEmail, forceCreateAnchors));
@@ -886,6 +900,18 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void RestoreAfterGallery()
     {
+        if (planeManager)
+        {
+            planeManager.requestedDetectionMode =
+                _planeManagerPrevDetectionMode == PlaneDetectionMode.None
+                    ? PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical
+                    : _planeManagerPrevDetectionMode;
+            planeManager.enabled = _planeManagerWasEnabled;
+        }
+
+        if (reticle && _reticleWasActive)
+            reticle.gameObject.SetActive(true);
+
         // Return to the phase we were in before opening the gallery, so controls and
         // plane detection resume instead of leaving the experience idle.
         switch (_phaseBeforeGallery)
@@ -956,14 +982,17 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         if (planeManager)
         {
+            _planeManagerWasEnabled = planeManager.enabled;
+            _planeManagerPrevDetectionMode = planeManager.requestedDetectionMode;
             planeManager.requestedDetectionMode = PlaneDetectionMode.None;
-            planeManager.enabled = false;
+            planeManager.enabled = true; // keep tracking live so camera feed does not freeze
         }
 
         if (reticle)
+        {
+            _reticleWasActive = reticle.gameObject.activeSelf;
             reticle.gameObject.SetActive(false);
-
-        SetPhase(Phase.Idle);
+        }
     }
 
     void EnablePlaneManager()
