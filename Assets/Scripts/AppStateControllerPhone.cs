@@ -854,9 +854,10 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         _phaseBeforeGallery = _phase;
+        _galleryVisible = false;
 
         StopGalleryRoutine();
-        StopScanningForGallery();
+        PauseForGallery();
 
         if (painter)
             painter.StopPainting();
@@ -866,7 +867,6 @@ public class AppStateControllerPhone : MonoBehaviour
         SetPhase(Phase.Gallery);
 
         SetTip("Loading gallery...");
-        _galleryVisible = true;
         _galleryRoutine = CoroutineRunner.Run(BuildGalleryRoutine(ownerEmail, forceCreateAnchors));
     }
 
@@ -955,7 +955,15 @@ public class AppStateControllerPhone : MonoBehaviour
 
         _galleryRoutine = null;
         _galleryVisible = _galleryPreviews.Count > 0;
-        SetTip(_galleryVisible ? "Showing saved graffiti in AR." : "No saved graffiti yet.");
+
+        if (!_galleryVisible)
+        {
+            SetTip("No saved graffiti yet.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        SetTip("Showing saved graffiti in AR.");
     }
 
     void StopGalleryRoutine()
@@ -978,14 +986,13 @@ public class AppStateControllerPhone : MonoBehaviour
         return anchor;
     }
 
-    void StopScanningForGallery()
+    void PauseForGallery()
     {
         if (planeManager)
         {
             _planeManagerWasEnabled = planeManager.enabled;
             _planeManagerPrevDetectionMode = planeManager.requestedDetectionMode;
-            planeManager.requestedDetectionMode = PlaneDetectionMode.None;
-            planeManager.enabled = true; // keep tracking live so camera feed does not freeze
+            planeManager.enabled = true;
         }
 
         if (reticle)
