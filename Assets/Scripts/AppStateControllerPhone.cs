@@ -78,11 +78,11 @@ public class AppStateControllerPhone : MonoBehaviour
     void Awake()
     {
         btnScan.onClick.AddListener(() => {
-            StartCoroutine(ButtonClickFeedback(btnScan));
-            StartCoroutine(RescanRoutine());
+            CoroutineRunner.Run(ButtonClickFeedback(btnScan));
+            CoroutineRunner.Run(RescanRoutine());
         });
         btnSelectSurface.onClick.AddListener(() => {
-            StartCoroutine(ButtonClickFeedback(btnSelectSurface));
+            CoroutineRunner.Run(ButtonClickFeedback(btnSelectSurface));
             SelectSurfaceUnderReticle();
         });
         // btnGraffiti now uses the GraffitiButtonLongPress component to handle long press events
@@ -92,11 +92,11 @@ public class AppStateControllerPhone : MonoBehaviour
         // Bind ColorPalette button to toggle tool panel
         if (btnColorPalette != null)
         {
-            btnColorPalette.onClick.AddListener(() => {
-                StartCoroutine(ButtonClickFeedback(btnColorPalette));
-                ToggleToolPanel();
-            });
-        }
+                btnColorPalette.onClick.AddListener(() => {
+                    CoroutineRunner.Run(ButtonClickFeedback(btnColorPalette));
+                    ToggleToolPanel();
+                });
+            }
         else
         {
             // Try to find by name if not assigned
@@ -107,7 +107,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 if (btnColorPalette != null)
                 {
                     btnColorPalette.onClick.AddListener(() => {
-                        StartCoroutine(ButtonClickFeedback(btnColorPalette));
+                        CoroutineRunner.Run(ButtonClickFeedback(btnColorPalette));
                         ToggleToolPanel();
                     });
                 }
@@ -733,8 +733,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void Save()
     {
-        StartCoroutine(ButtonClickFeedback(btnSave));
-        StartCoroutine(SaveGraffitiRoutine());
+        CoroutineRunner.Run(ButtonClickFeedback(btnSave));
+        CoroutineRunner.Run(SaveGraffitiRoutine());
     }
 
     void OpenGallery()
@@ -920,8 +920,8 @@ public class AppStateControllerPhone : MonoBehaviour
     void ShowNotification(string message)
     {
         if (_notificationRoutine != null)
-            StopCoroutine(_notificationRoutine);
-        _notificationRoutine = StartCoroutine(NotificationRoutine(message));
+            CoroutineRunner.Stop(_notificationRoutine);
+        _notificationRoutine = CoroutineRunner.Run(NotificationRoutine(message));
     }
 
     IEnumerator NotificationRoutine(string message)
@@ -1219,7 +1219,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 // Bind click event with same animation effect as scan button
                 btnUndo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnUndo.onClick.AddListener(() => {
-                    StartCoroutine(ButtonClickFeedback(btnUndo));
+                    CoroutineRunner.Run(ButtonClickFeedback(btnUndo));
                     HandleUndoAction();
                 });
 
@@ -1281,7 +1281,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 // Bind click event with same animation effect as scan button
                 btnRedo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
                 btnRedo.onClick.AddListener(() => {
-                    StartCoroutine(ButtonClickFeedback(btnRedo));
+                    CoroutineRunner.Run(ButtonClickFeedback(btnRedo));
                     HandleRedoAction();
                 });
 
@@ -1386,7 +1386,7 @@ public class AppStateControllerPhone : MonoBehaviour
         // Bind click event
         btnGallery.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
         btnGallery.onClick.AddListener(() => {
-            StartCoroutine(ButtonClickFeedback(btnGallery));
+            CoroutineRunner.Run(ButtonClickFeedback(btnGallery));
             OpenGallery();
         });
 
