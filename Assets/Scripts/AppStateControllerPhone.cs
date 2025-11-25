@@ -40,6 +40,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
     readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
+    Coroutine _galleryRoutine;
     bool _galleryVisible;
     GraffitiRepository _repo;
 
@@ -142,8 +143,6 @@ public class AppStateControllerPhone : MonoBehaviour
         // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
 
-        UpdateGalleryButtonState();
-
         SetPhase(Phase.Idle);
 
         // At runtime, set background colors transparent; backgrounds only visible in editor
@@ -153,6 +152,7 @@ public class AppStateControllerPhone : MonoBehaviour
             painter.StrokeHistoryChanged += UpdateUndoRedoButtonsVisibility;
 
         EnsureRepository();
+        UpdateGalleryButtonState();
     }
 
 
@@ -694,6 +694,8 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         if (!btnGallery) return;
 
+        EnsureRepository();
+
         string ownerEmail = CurrentOwnerEmail();
         bool hasEntries = GraffitiRepository.I && GraffitiRepository.I.HasForOwner(ownerEmail);
 
@@ -837,6 +839,7 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
+        StopGalleryRoutine();
         StopScanningForGallery();
 
         if (painter)
@@ -844,30 +847,21 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(false);
         ClearGalleryPreviews();
 
-        var items = _repo.AllForOwner(ownerEmail);
-
-        foreach (var data in items)
-        {
-            var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
-            if (!tex) continue;
-
-            var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: forceCreateAnchors || _currentAnchor == null);
-            if (quad) _galleryPreviews.Add(quad);
-        }
-
-        _galleryVisible = _galleryPreviews.Count > 0;
-        if (_galleryVisible)
-            SetTip("Showing saved graffiti in AR.");
+        _galleryVisible = true;
+        _galleryRoutine = CoroutineRunner.Run(BuildGalleryRoutine(ownerEmail, forceCreateAnchors));
     }
 
     public void HideGalleryPreviews()
     {
+        StopGalleryRoutine();
         ClearGalleryPreviews();
         SetTip("Gallery hidden.");
     }
 
     void ClearGalleryPreviews()
     {
+        StopGalleryRoutine();
+
         foreach (var anchor in _galleryAnchors)
         {
             if (anchor)
@@ -882,6 +876,38 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         _galleryPreviews.Clear();
         _galleryVisible = false;
+    }
+
+    IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
+    {
+        bool createAnchors = forceCreateAnchors || _currentAnchor == null;
+        var items = _repo.AllForOwner(ownerEmail);
+
+        foreach (var data in items)
+        {
+            var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
+            if (tex)
+            {
+                var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
+                if (quad) _galleryPreviews.Add(quad);
+            }
+
+            // Spread work across frames so the UI never freezes when many entries exist.
+            yield return null;
+        }
+
+        _galleryRoutine = null;
+        _galleryVisible = _galleryPreviews.Count > 0;
+        SetTip(_galleryVisible ? "Showing saved graffiti in AR." : "No saved graffiti yet.");
+    }
+
+    void StopGalleryRoutine()
+    {
+        if (_galleryRoutine != null)
+        {
+            CoroutineRunner.Stop(_galleryRoutine);
+            _galleryRoutine = null;
+        }
     }
 
     ARAnchor CreateWorldAnchor(Pose pose)
