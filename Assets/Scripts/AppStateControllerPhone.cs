@@ -296,6 +296,8 @@ public class AppStateControllerPhone : MonoBehaviour
     // ========================= PHASES =========================
     IEnumerator RescanRoutine()
     {
+        ExitGalleryIfActive();
+
         if (cameraManager) cameraManager.autoFocusRequested = true;
 
         EnablePlaneManager();
@@ -348,6 +350,15 @@ public class AppStateControllerPhone : MonoBehaviour
         if (reticle) reticle.gameObject.SetActive(true);
 
         UpdateUndoRedoButtonsVisibility();
+    }
+
+    void ExitGalleryIfActive()
+    {
+        if (_phase != Phase.Gallery && _galleryRoutine == null && !_galleryVisible && _galleryHiddenUI.Count == 0)
+            return;
+
+        ClearGalleryPreviews();
+        RestoreAfterGallery();
     }
 
     IEnumerator WaitForTrackingReady(float timeoutSeconds)
@@ -945,108 +956,122 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
-        // Ensure AR tracking is active before we try to place anchors. If tracking is
-        // paused (e.g., app just resumed), building now could leave previews at
-        // stale poses.
-        yield return WaitForTrackingReady(3f);
-
-        if (_repo == null)
-        {
-            SetTip("No saved graffiti yet.");
-            RestoreAfterGallery();
-            yield break;
-        }
-
-        IReadOnlyList<GraffitiData> items = null;
         try
         {
-            items = _repo.AllForOwner(ownerEmail);
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"[Gallery] Failed to read repository: {ex.Message}");
-            SetTip("Gallery unavailable. Returning to AR view.");
-            RestoreAfterGallery();
-            yield break;
-        }
+            // Ensure AR tracking is active before we try to place anchors. If tracking is
+            // paused (e.g., app just resumed), building now could leave previews at
+            // stale poses.
+            yield return WaitForTrackingReady(3f);
 
-        if (items == null || items.Count == 0)
-        {
-            Debug.Log("[Gallery] No entries for owner; aborting gallery build.");
-            SetTip("No saved graffiti yet.");
-            RestoreAfterGallery();
-            yield break;
-        }
+            if (_repo == null)
+            {
+                SetTip("No saved graffiti yet.");
+                RestoreAfterGallery();
+                yield break;
+            }
 
-        Debug.Log($"[Gallery] Building {items.Count} previews (forceCreateAnchors={forceCreateAnchors})");
-
-        // Make the routine resilient so we never leave the app stuck in Gallery
-        // mode if something unexpected happens while spawning previews.
-        System.Exception failure = null;
-
-        bool createAnchors = forceCreateAnchors || _currentAnchor == null;
-        int spawned = 0;
-
-        foreach (var data in items)
-        {
+            IReadOnlyList<GraffitiData> items = null;
             try
             {
-                if (!IsFinite(data.position) || !IsFinite(data.localScale))
-                {
-                    Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
-                    continue;
-                }
-
-                var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
-                if (tex)
-                {
-                    var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
-                    if (quad)
-                    {
-                        _galleryPreviews.Add(quad);
-                        spawned++;
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[Gallery] SpawnPreviewQuad returned null for {data.id}");
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
-                }
+                items = _repo.AllForOwner(ownerEmail);
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Gallery] Failed to spawn preview for {data.id}: {ex.Message}");
-                failure = ex;
-                break;
+                Debug.LogError($"[Gallery] Failed to read repository: {ex.Message}");
+                SetTip("Gallery unavailable. Returning to AR view.");
+                RestoreAfterGallery();
+                yield break;
             }
 
-            // Spread work across frames so the UI never freezes when many entries exist.
-            yield return null;
+            if (items == null || items.Count == 0)
+            {
+                Debug.Log("[Gallery] No entries for owner; aborting gallery build.");
+                SetTip("No saved graffiti yet.");
+                RestoreAfterGallery();
+                yield break;
+            }
+
+            Debug.Log($"[Gallery] Building {items.Count} previews (forceCreateAnchors={forceCreateAnchors})");
+
+            // Make the routine resilient so we never leave the app stuck in Gallery
+            // mode if something unexpected happens while spawning previews.
+            System.Exception failure = null;
+
+            bool createAnchors = forceCreateAnchors || _currentAnchor == null;
+            int spawned = 0;
+
+            foreach (var data in items)
+            {
+                try
+                {
+                    if (!IsFinite(data.position) || !IsFinite(data.localScale))
+                    {
+                        Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                        continue;
+                    }
+
+                    var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
+                    if (tex)
+                    {
+                        var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
+                        if (quad)
+                        {
+                            _galleryPreviews.Add(quad);
+                            spawned++;
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[Gallery] SpawnPreviewQuad returned null for {data.id}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[Gallery] Failed to spawn preview for {data.id}: {ex.Message}");
+                    failure = ex;
+                    break;
+                }
+
+                // Spread work across frames so the UI never freezes when many entries exist.
+                yield return null;
+            }
+
+            _galleryVisible = _galleryPreviews.Count > 0;
+
+            if (failure != null)
+            {
+                SetTip("Gallery unavailable. Returning to AR view.");
+                RestoreAfterGallery();
+                yield break;
+            }
+
+            if (!_galleryVisible)
+            {
+                Debug.LogWarning("[Gallery] No previews were created; returning to AR view.");
+                SetTip("No saved graffiti yet.");
+                RestoreAfterGallery();
+                yield break;
+            }
+
+            Debug.Log($"[Gallery] Spawned {spawned} previews.");
+            SetTip("Showing saved graffiti in AR.");
         }
-
-        _galleryRoutine = null;
-        _galleryVisible = _galleryPreviews.Count > 0;
-
-        if (failure != null)
+        catch (Exception ex)
         {
+            Debug.LogError($"[Gallery] Unexpected failure while building gallery: {ex}");
+            _galleryVisible = false;
+            ClearGalleryPreviews();
             SetTip("Gallery unavailable. Returning to AR view.");
             RestoreAfterGallery();
-            yield break;
         }
-
-        if (!_galleryVisible)
+        finally
         {
-            Debug.LogWarning("[Gallery] No previews were created; returning to AR view.");
-            SetTip("No saved graffiti yet.");
-            RestoreAfterGallery();
-            yield break;
+            _galleryRoutine = null;
         }
-
-        Debug.Log($"[Gallery] Spawned {spawned} previews.");
-        SetTip("Showing saved graffiti in AR.");
     }
 
     bool IsFinite(Vector3 v)
