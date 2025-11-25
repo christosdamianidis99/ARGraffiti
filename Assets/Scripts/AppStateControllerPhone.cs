@@ -42,6 +42,7 @@ public class AppStateControllerPhone : MonoBehaviour
     readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
     Coroutine _galleryRoutine;
     bool _galleryVisible;
+    Phase _phaseBeforeGallery = Phase.Idle;
     GraffitiRepository _repo;
 
     // State
@@ -839,6 +840,8 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
+        _phaseBeforeGallery = _phase;
+
         StopGalleryRoutine();
         StopScanningForGallery();
 
@@ -847,6 +850,7 @@ public class AppStateControllerPhone : MonoBehaviour
         TogglePlaneMesh(false);
         ClearGalleryPreviews();
 
+        SetTip("Loading gallery...");
         _galleryVisible = true;
         _galleryRoutine = CoroutineRunner.Run(BuildGalleryRoutine(ownerEmail, forceCreateAnchors));
     }
@@ -855,6 +859,7 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         StopGalleryRoutine();
         ClearGalleryPreviews();
+        RestoreAfterGallery();
         SetTip("Gallery hidden.");
     }
 
@@ -878,6 +883,31 @@ public class AppStateControllerPhone : MonoBehaviour
         _galleryVisible = false;
     }
 
+    void RestoreAfterGallery()
+    {
+        // Return to the phase we were in before opening the gallery, so controls and
+        // plane detection resume instead of leaving the experience idle.
+        switch (_phaseBeforeGallery)
+        {
+            case Phase.Scanning:
+                EnablePlaneManager();
+                if (planeManager)
+                    planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
+                if (reticle) reticle.gameObject.SetActive(true);
+                SetPhase(Phase.Scanning);
+                break;
+            case Phase.PlaneSelected:
+            case Phase.Painting:
+                EnablePlaneManager();
+                if (reticle) reticle.gameObject.SetActive(true);
+                SetPhase(_phaseBeforeGallery);
+                break;
+            default:
+                SetPhase(Phase.Idle);
+                break;
+        }
+    }
+
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
         bool createAnchors = forceCreateAnchors || _currentAnchor == null;
@@ -885,7 +915,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         foreach (var data in items)
         {
-            var tex = LoadTextureFromDisk(data.pngPath, data.thumbPath);
+            var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
             if (tex)
             {
                 var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
