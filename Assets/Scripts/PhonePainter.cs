@@ -18,6 +18,9 @@ public class PhonePainter : MonoBehaviour
     public BrushShape shape = BrushShape.Circle;
     public Color color = Color.red;
 
+    [Header("Stabilization")]
+    [Range(0f, 0.95f)] public float positionSmoothing = 0.55f;
+
     [Header("AR")]
     public ARPlane lockedPlane;
     ARRaycastManager _raycaster;
@@ -55,6 +58,9 @@ public class PhonePainter : MonoBehaviour
     [Header("State")]
     public bool paintingActive;
     Vector3? _lastPos;
+    Vector3 _smoothedPos;
+    Vector3 _smoothedNormal;
+    bool _hasSmoothedSample;
     readonly List<Material> _ownedMaterials = new();
     int _paintLayerIndex = -1;
     void Awake()
@@ -130,6 +136,7 @@ public class PhonePainter : MonoBehaviour
         paintingActive = true;
         _newStrokeOnNextDab = true;
         _lastPos = null;
+        _hasSmoothedSample = false;
         // Ensure brushSize is current (it should already be synced from UI, but make sure)
         // brushSize is already set via SetBrushSize() from ToolUIController's sizeSlider
     }
@@ -209,7 +216,7 @@ public class PhonePainter : MonoBehaviour
 
     public void SetColor(Color c)
     {
-        color = c;
+        color = BoostGraffitiColor(c);
         _newStrokeOnNextDab = true; // start new stroke next dab so old color remains
     }
 
@@ -232,6 +239,23 @@ public class PhonePainter : MonoBehaviour
 
         var n = hit.pose.up;
         var pos = hit.pose.position;
+
+        // Smooth camera jitter to keep strokes stable
+        if (!_hasSmoothedSample)
+        {
+            _smoothedPos = pos;
+            _smoothedNormal = n;
+            _hasSmoothedSample = true;
+        }
+        else
+        {
+            float lerpT = 1f - Mathf.Pow(1f - positionSmoothing, Time.deltaTime * 60f);
+            _smoothedPos = Vector3.Lerp(_smoothedPos, pos, lerpT);
+            _smoothedNormal = Vector3.Slerp(_smoothedNormal, n, lerpT);
+        }
+
+        pos = _smoothedPos;
+        n = _smoothedNormal;
 
         if (_lockedBoundaryLocal != null && _lockedBoundaryLocal.Length >= 3)
         {
@@ -413,27 +437,6 @@ public class PhonePainter : MonoBehaviour
         return true;
     }
 
-    void PushStrokeToHistory(Transform stroke)
-    {
-        if (!stroke) return;
-
-        if (_historyCursor < _strokeHistory.Count)
-        {
-            for (int i = _historyCursor; i < _strokeHistory.Count; i++)
-            {
-                var staleStroke = _strokeHistory[i];
-                if (staleStroke)
-                    Destroy(staleStroke.gameObject);
-            }
-            _strokeHistory.RemoveRange(_historyCursor, _strokeHistory.Count - _historyCursor);
-        }
-
-        stroke.gameObject.SetActive(true);
-        _strokeHistory.Add(stroke);
-        _historyCursor = _strokeHistory.Count;
-        StrokeHistoryChanged?.Invoke();
-    }
-
     void RecordStrokeInHistory(Transform stroke)
     {
         if (!stroke) return;
@@ -454,33 +457,6 @@ public class PhonePainter : MonoBehaviour
         _historyCursor = _strokeHistory.Count;
         StrokeHistoryChanged?.Invoke();
     }
-
-    public bool TryGetCombinedStrokeBounds(out Bounds bounds)
-    {
-        bounds = default;
-        var root = strokesRoot ? strokesRoot : transform;
-        bool hasBounds = false;
-
-        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-        {
-            if (!r || !r.gameObject.activeInHierarchy) continue;
-            if (!r.GetComponentInParent<StrokeMeta>()) continue;
-
-            if (!hasBounds)
-            {
-                bounds = r.bounds;
-                hasBounds = true;
-            }
-            else
-            {
-                bounds.Encapsulate(r.bounds);
-            }
-        }
-
-        return hasBounds;
-    }
-
-
 
     void RemoveUnderlyingDabs(Vector3 worldPos, float radius)
     {
@@ -539,7 +515,20 @@ public class PhonePainter : MonoBehaviour
         _strokeParent = null;
         _strokeMat = null;
         _lastPos = null;
+        _hasSmoothedSample = false;
         _newStrokeOnNextDab = true;
+    }
+
+    Color BoostGraffitiColor(Color c)
+    {
+        if (c.maxColorComponent <= 0f) return c;
+
+        Color.RGBToHSV(c, out float h, out float s, out float v);
+        s = Mathf.Clamp01(Mathf.Lerp(s, 1f, 0.35f));
+        v = Mathf.Clamp(v, 0.65f, 1f);
+        var vivid = Color.HSVToRGB(h, s, v);
+        vivid.a = c.a;
+        return vivid;
     }
 }
 
