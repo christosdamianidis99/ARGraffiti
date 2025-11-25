@@ -1066,7 +1066,20 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         // Prefer the ARAnchorManager APIs so anchors remain tracked by the subsystem.
-        var anchor = anchorManager.AddAnchor(pose);
+        ARAnchor anchor = null;
+
+        // ARFoundation 6+ uses TryAddAnchor; older versions expose AddAnchor.
+        var tryAddAnchor = anchorManager.GetType().GetMethod("TryAddAnchor", new[] { typeof(Pose) });
+        if (tryAddAnchor != null)
+        {
+            anchor = tryAddAnchor.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+        }
+        else
+        {
+            var addAnchor = anchorManager.GetType().GetMethod("AddAnchor", new[] { typeof(Pose) });
+            if (addAnchor != null)
+                anchor = addAnchor.Invoke(anchorManager, new object[] { pose }) as ARAnchor;
+        }
         if (anchor)
         {
             return anchor;
