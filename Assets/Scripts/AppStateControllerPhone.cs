@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
@@ -845,6 +846,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
+        Debug.Log("[Gallery] Request to show gallery");
         string ownerEmail = CurrentOwnerEmail();
         EnsureRepository();
         if (_repo == null || !_repo.HasForOwner(ownerEmail))
@@ -944,12 +946,35 @@ public class AppStateControllerPhone : MonoBehaviour
             yield break;
         }
 
+        IReadOnlyList<GraffitiData> items = null;
+        try
+        {
+            items = _repo.AllForOwner(ownerEmail);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[Gallery] Failed to read repository: {ex.Message}");
+            SetTip("Gallery unavailable. Returning to AR view.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        if (items == null || items.Count == 0)
+        {
+            Debug.Log("[Gallery] No entries for owner; aborting gallery build.");
+            SetTip("No saved graffiti yet.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
+        Debug.Log($"[Gallery] Building {items.Count} previews (forceCreateAnchors={forceCreateAnchors})");
+
         // Make the routine resilient so we never leave the app stuck in Gallery
         // mode if something unexpected happens while spawning previews.
         System.Exception failure = null;
 
         bool createAnchors = forceCreateAnchors || _currentAnchor == null;
-        var items = _repo.AllForOwner(ownerEmail);
+        int spawned = 0;
 
         foreach (var data in items)
         {
@@ -959,7 +984,19 @@ public class AppStateControllerPhone : MonoBehaviour
                 if (tex)
                 {
                     var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
-                    if (quad) _galleryPreviews.Add(quad);
+                    if (quad)
+                    {
+                        _galleryPreviews.Add(quad);
+                        spawned++;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[Gallery] SpawnPreviewQuad returned null for {data.id}");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
                 }
             }
             catch (Exception ex)
@@ -985,11 +1022,13 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (!_galleryVisible)
         {
+            Debug.LogWarning("[Gallery] No previews were created; returning to AR view.");
             SetTip("No saved graffiti yet.");
             RestoreAfterGallery();
             yield break;
         }
 
+        Debug.Log($"[Gallery] Spawned {spawned} previews.");
         SetTip("Showing saved graffiti in AR.");
     }
 
