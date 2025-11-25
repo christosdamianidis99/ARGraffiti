@@ -823,8 +823,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (_repo)
             _repo.AddOrUpdate(data);
 
-        // Stop scanning and enter gallery mode right after saving
-        StopScanningForGallery();
+        // Enter gallery mode right after saving. Let ShowGalleryInAR capture the
+        // current phase before it pauses plane detection so we can restore the
+        // user's previous state when exiting the gallery.
         ShowGalleryInAR(forceCreateAnchors: true);
         UpdateGalleryButtonState();
         ShowNotification("Saved! Showing gallery.");
@@ -1505,6 +1506,10 @@ public class AppStateControllerPhone : MonoBehaviour
         if (sprite != null)
         {
             buttonImage.sprite = sprite;
+            buttonImage.type = Image.Type.Simple;
+            buttonImage.useSpriteMesh = true;
+            buttonImage.preserveAspect = true;
+            buttonImage.alphaHitTestMinimumThreshold = 0.1f; // Use icon alpha instead of a solid background
         }
         else
         {
