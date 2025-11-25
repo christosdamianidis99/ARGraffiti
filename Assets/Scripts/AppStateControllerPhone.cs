@@ -41,6 +41,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
     readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
+    readonly Dictionary<GameObject, bool> _galleryHiddenUI = new Dictionary<GameObject, bool>();
     Coroutine _galleryRoutine;
     bool _galleryVisible;
     Phase _phaseBeforeGallery = Phase.Idle;
@@ -917,6 +918,8 @@ public class AppStateControllerPhone : MonoBehaviour
         if (reticle && _reticleWasActive)
             reticle.gameObject.SetActive(true);
 
+        RestoreGalleryUI();
+
         // Return to the phase we were in before opening the gallery, so controls and
         // plane detection resume instead of leaving the experience idle.
         switch (_phaseBeforeGallery)
@@ -1139,6 +1142,36 @@ public class AppStateControllerPhone : MonoBehaviour
             _reticleWasActive = reticle.gameObject.activeSelf;
             reticle.gameObject.SetActive(false);
         }
+
+        _galleryHiddenUI.Clear();
+        HideUIForGallery(btnSelectSurface ? btnSelectSurface.gameObject : null);
+        HideUIForGallery(btnGraffiti ? btnGraffiti.gameObject : null);
+        HideUIForGallery(btnSave ? btnSave.gameObject : null);
+        HideUIForGallery(btnColorPalette ? btnColorPalette.gameObject : null);
+        HideUIForGallery(btnPaintBrush ? btnPaintBrush.gameObject : null);
+        HideUIForGallery(btnGallery ? btnGallery.gameObject : null);
+        HideUIForGallery(btnUndo ? btnUndo.gameObject : null);
+        HideUIForGallery(btnRedo ? btnRedo.gameObject : null);
+        HideUIForGallery(panelTools);
+        HideUIForGallery(panelGraffiti);
+    }
+
+    void HideUIForGallery(GameObject go)
+    {
+        if (!go) return;
+        _galleryHiddenUI[go] = go.activeSelf;
+        go.SetActive(false);
+    }
+
+    void RestoreGalleryUI()
+    {
+        foreach (var kvp in _galleryHiddenUI)
+        {
+            if (kvp.Key)
+                kvp.Key.SetActive(kvp.Value);
+        }
+
+        _galleryHiddenUI.Clear();
     }
 
     void EnablePlaneManager()
