@@ -956,7 +956,10 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
-                    yield return WaitForTrackingReady(3f);
+        // Wait a moment for AR tracking to settle so anchors/poses are valid, then
+        // yield once so the UI can finish updating before we start heavy IO work.
+        yield return WaitForTrackingReady(3f);
+        yield return null;
 
         try
         {
@@ -998,6 +1001,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
             bool createAnchors = forceCreateAnchors || _currentAnchor == null;
             int spawned = 0;
+            int iteration = 0;
 
             foreach (var data in items)
             {
@@ -1027,6 +1031,12 @@ public class AppStateControllerPhone : MonoBehaviour
                     {
                         Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
                     }
+
+                    // Avoid freezing the UI thread while loading large galleries by
+                    // yielding control every few items.
+                    iteration++;
+                    if ((iteration & 3) == 0)
+                        yield return null;
                 }
                 catch (Exception ex)
                 {
