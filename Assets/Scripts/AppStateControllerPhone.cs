@@ -35,6 +35,10 @@ public class AppStateControllerPhone : MonoBehaviour
     public GameObject panelGraffiti;            // Panel_Graffiti
     public TMPro.TMP_Text txtTips;              // optional tips label
     public float notificationSeconds = 2f;      // how long to keep save notification visible
+    [Header("Gallery UI")]
+    public GameObject panelGalleryScreen;       // optional overlay with back-only UI
+    public Button btnGalleryBack;               // back button shown only in gallery
+    public GameObject galleryLoadingIndicator;  // optional spinner shown while loading
 
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
@@ -51,6 +55,7 @@ public class AppStateControllerPhone : MonoBehaviour
     bool _planeManagerWasEnabled;
     PlaneDetectionMode _planeManagerPrevDetectionMode = PlaneDetectionMode.None;
     bool _reticleWasActive;
+    bool _reticleUIWasEnabled;
     GraffitiRepository _repo;
 
     // State
@@ -151,6 +156,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
+        InitializeGalleryScreen();
 
         SetPhase(Phase.Idle);
 
@@ -396,7 +402,11 @@ public class AppStateControllerPhone : MonoBehaviour
         switch (_phase)
         {
             case Phase.Idle:
-                if (planeManager) planeManager.enabled = false;
+                if (planeManager)
+                {
+                    planeManager.enabled = true; // keep tracking alive
+                    planeManager.requestedDetectionMode = PlaneDetectionMode.None;
+                }
                 TogglePlaneMesh(false);
                 // Hide select_surface button in Idle phase
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
@@ -426,11 +436,11 @@ public class AppStateControllerPhone : MonoBehaviour
                 break;
 
             case Phase.PlaneSelected:
-                planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
+            planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
 
-                TogglePlaneMesh(false);   // hide dynamic meshes
-                BuildFrozenBorder();      // show frozen outline
-                // Panel_Tools is now controlled by ToggleToolPanel() - don't auto-show
+            TogglePlaneMesh(false);   // hide dynamic meshes
+            BuildFrozenBorder();      // show frozen outline
+            // Panel_Tools is now controlled by ToggleToolPanel() - don't auto-show
                 // if (panelTools) panelTools.SetActive(true);
                 // Save button is positioned at top-right of panelTop
                 // Hide select_surface button after selecting surface
@@ -457,7 +467,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
                 if (btnUndo) btnUndo.gameObject.SetActive(false);
                 if (btnRedo) btnRedo.gameObject.SetActive(false);
-                if (reticle) reticle.gameObject.SetActive(false);
+                if (reticle && reticle.reticleUI) reticle.reticleUI.enabled = false; // hide visual only
                 if (painter) painter.StopPainting();
                 SetTip("Loading gallery...");
                 break;
@@ -888,6 +898,7 @@ public class AppStateControllerPhone : MonoBehaviour
         _phaseBeforeGallery = _phase;
         _galleryVisible = false;
 
+        EnsureCameraFeedActive();
         StopGalleryRoutine();
         PauseForGallery();
 
@@ -928,6 +939,7 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         _galleryPreviews.Clear();
         _galleryVisible = false;
+        SetGalleryLoading(false);
     }
 
     void RestoreAfterGallery()
@@ -942,9 +954,14 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         if (reticle && _reticleWasActive)
+        {
             reticle.gameObject.SetActive(true);
+            if (reticle.reticleUI)
+                reticle.reticleUI.enabled = _reticleUIWasEnabled;
+        }
 
         RestoreGalleryUI();
+        ShowGalleryScreen(false);
 
         // Return to the phase we were in before opening the gallery, so controls and
         // plane detection resume instead of leaving the experience idle.
@@ -1010,6 +1027,7 @@ public class AppStateControllerPhone : MonoBehaviour
         // Ensure AR tracking is active before we try to place anchors. If tracking is
         // paused (e.g., app just resumed), building now could leave previews at
         // stale poses.
+        EnsureCameraFeedActive();
         yield return WaitForTrackingReady(3f);
 
         if (ARSession.state != ARSessionState.SessionTracking)
@@ -1053,7 +1071,7 @@ public class AppStateControllerPhone : MonoBehaviour
         // mode if something unexpected happens while spawning previews.
         System.Exception failure = null;
 
-        bool createAnchors = true;
+        bool createAnchors = forceCreateAnchors && anchorManager != null;
         int spawned = 0;
         bool anySkippedForDistance = false;
 
@@ -1110,6 +1128,7 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             SetTip("Gallery unavailable. Returning to AR view.");
             RestoreAfterGallery();
+            SetGalleryLoading(false);
             yield break;
         }
 
@@ -1126,6 +1145,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         Debug.Log($"[Gallery] Spawned {spawned} previews.");
         SetTip("Showing saved graffiti in AR.");
+        SetGalleryLoading(false);
     }
 
     bool IsFinite(Vector3 v)
@@ -1217,12 +1237,47 @@ public class AppStateControllerPhone : MonoBehaviour
         return anchor;
     }
 
+    void EnsureTrackingActiveForGallery()
+    {
+        if (arSession && !arSession.enabled)
+            arSession.enabled = true;
+
+        if (cameraManager && !cameraManager.enabled)
+            cameraManager.enabled = true;
+
+        if (planeManager)
+        {
+            planeManager.enabled = true;
+            if (planeManager.requestedDetectionMode == PlaneDetectionMode.None)
+                planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
+        }
+    }
+
+    void EnsureCameraFeedActive()
+    {
+        // Guarantee the camera stream stays alive while we toggle gallery UI.
+        if (cameraManager)
+        {
+            var cam = cameraManager.GetComponent<Camera>();
+            if (cam && !cam.enabled) cam.enabled = true;
+            var bg = cameraManager.GetComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>();
+            if (bg && !bg.enabled) bg.enabled = true;
+        }
+        EnsureTrackingActiveForGallery();
+    }
+
     void PauseForGallery()
     {
         if (planeManager)
         {
             _planeManagerWasEnabled = planeManager.enabled;
             _planeManagerPrevDetectionMode = planeManager.requestedDetectionMode;
+        }
+
+        EnsureTrackingActiveForGallery();
+
+        if (planeManager)
+        {
             planeManager.enabled = true;
 
             // Keep plane detection running while the gallery is open so ARCore/ARKit
@@ -1237,7 +1292,8 @@ public class AppStateControllerPhone : MonoBehaviour
         if (reticle)
         {
             _reticleWasActive = reticle.gameObject.activeSelf;
-            reticle.gameObject.SetActive(false);
+            _reticleUIWasEnabled = reticle.reticleUI ? reticle.reticleUI.enabled : false;
+            if (reticle.reticleUI) reticle.reticleUI.enabled = false;
         }
 
         _galleryHiddenUI.Clear();
@@ -1249,13 +1305,20 @@ public class AppStateControllerPhone : MonoBehaviour
         HideUIForGallery(btnGallery ? btnGallery.gameObject : null);
         HideUIForGallery(btnUndo ? btnUndo.gameObject : null);
         HideUIForGallery(btnRedo ? btnRedo.gameObject : null);
+        HideUIForGallery(panelTop);
         HideUIForGallery(panelTools);
         HideUIForGallery(panelGraffiti);
+
+        ShowGalleryScreen(true);
     }
 
     void HideUIForGallery(GameObject go)
     {
         if (!go) return;
+        // Never disable camera/session roots by accident.
+        if (go.GetComponent<Camera>() || go.GetComponent<ARSession>() || go.GetComponent<ARSessionOrigin>())
+            return;
+
         _galleryHiddenUI[go] = go.activeSelf;
         go.SetActive(false);
     }
@@ -1760,6 +1823,137 @@ public class AppStateControllerPhone : MonoBehaviour
         });
 
         btnGallery.interactable = false; // enabled when data exists
+    }
+
+    void InitializeGalleryScreen()
+    {
+        if (!panelGalleryScreen)
+        {
+            var go = GameObject.Find("Panel_Gallery");
+            if (go) panelGalleryScreen = go;
+        }
+        if (!panelGalleryScreen)
+        {
+            panelGalleryScreen = BuildRuntimeGalleryPanel();
+        }
+
+        if (!btnGalleryBack && panelGalleryScreen)
+        {
+            var back = panelGalleryScreen.transform.Find("Button_Back");
+            if (back) btnGalleryBack = back.GetComponent<Button>();
+        }
+
+        if (!galleryLoadingIndicator && panelGalleryScreen)
+        {
+            var loader = panelGalleryScreen.transform.Find("Loading");
+            if (loader) galleryLoadingIndicator = loader.gameObject;
+        }
+
+        if (btnGalleryBack)
+        {
+            btnGalleryBack.onClick.RemoveAllListeners();
+            btnGalleryBack.onClick.AddListener(() =>
+            {
+                CoroutineRunner.Run(ButtonClickFeedback(btnGalleryBack));
+                HideGalleryPreviews();
+            });
+        }
+
+        // Hide overlay by default until gallery is opened
+        ShowGalleryScreen(false);
+    }
+
+    void ShowGalleryScreen(bool visible)
+    {
+        if (panelGalleryScreen)
+            panelGalleryScreen.SetActive(visible);
+
+        if (btnGalleryBack)
+            btnGalleryBack.gameObject.SetActive(visible);
+
+        SetGalleryLoading(visible); // default to loading spinner when opening
+    }
+
+    void SetGalleryLoading(bool loading)
+    {
+        if (galleryLoadingIndicator)
+            galleryLoadingIndicator.SetActive(loading);
+    }
+
+    GameObject BuildRuntimeGalleryPanel()
+    {
+        // Create a minimal overlay so the gallery can work even if the scene
+        // forgot to wire the panel.
+        Transform parent = panelTop ? panelTop.transform.parent : null;
+        if (parent == null)
+        {
+            var canvas = FindObjectOfType<Canvas>();
+            if (canvas) parent = canvas.transform;
+        }
+
+        var panel = new GameObject("Panel_Gallery", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        var rt = panel.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        if (parent) panel.transform.SetParent(parent, false);
+
+        var img = panel.GetComponent<Image>();
+        img.color = new Color(0f, 0f, 0f, 0.35f); // slight dim
+
+        // Back button
+        var back = new GameObject("Button_Back", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        var backRt = back.GetComponent<RectTransform>();
+        backRt.sizeDelta = new Vector2(200f, 80f);
+        backRt.anchorMin = new Vector2(0f, 1f);
+        backRt.anchorMax = new Vector2(0f, 1f);
+        backRt.pivot = new Vector2(0f, 1f);
+        backRt.anchoredPosition = new Vector2(40f, -40f);
+        back.transform.SetParent(panel.transform, false);
+
+        var backImg = back.GetComponent<Image>();
+        backImg.color = new Color(1f, 1f, 1f, 0.85f);
+
+        var backTextGO = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+        backTextGO.transform.SetParent(back.transform, false);
+        var backText = backTextGO.GetComponent<Text>();
+        backText.text = "Back";
+        backText.alignment = TextAnchor.MiddleCenter;
+        backText.color = Color.black;
+        backText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        var backTextRt = backTextGO.GetComponent<RectTransform>();
+        backTextRt.anchorMin = Vector2.zero;
+        backTextRt.anchorMax = Vector2.one;
+        backTextRt.offsetMin = Vector2.zero;
+        backTextRt.offsetMax = Vector2.zero;
+
+        // Loading indicator
+        var loading = new GameObject("Loading", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+        var loadingRt = loading.GetComponent<RectTransform>();
+        loadingRt.anchorMin = new Vector2(0.5f, 0.5f);
+        loadingRt.anchorMax = new Vector2(0.5f, 0.5f);
+        loadingRt.pivot = new Vector2(0.5f, 0.5f);
+        loadingRt.anchoredPosition = Vector2.zero;
+        loading.transform.SetParent(panel.transform, false);
+        var loadingText = loading.GetComponent<Text>();
+        loadingText.text = "Loading...";
+        loadingText.alignment = TextAnchor.MiddleCenter;
+        loadingText.fontSize = 32;
+        loadingText.color = Color.white;
+        loadingText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+
+        panel.SetActive(false);
+        galleryLoadingIndicator = loading;
+        btnGalleryBack = back.GetComponent<Button>();
+        btnGalleryBack.onClick.RemoveAllListeners();
+        btnGalleryBack.onClick.AddListener(() =>
+        {
+            CoroutineRunner.Run(ButtonClickFeedback(btnGalleryBack));
+            HideGalleryPreviews();
+        });
+
+        return panel;
     }
 
     /// <summary>
