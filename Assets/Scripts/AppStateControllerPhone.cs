@@ -38,6 +38,7 @@ public class AppStateControllerPhone : MonoBehaviour
     [Header("Gallery UI")]
     public GameObject panelGalleryScreen;       // optional overlay with back-only UI
     public Button btnGalleryBack;               // back button shown only in gallery
+    public Button btnGalleryDelete;             // delete current preview
     public GameObject galleryLoadingIndicator;  // optional spinner shown while loading
 
     [Header("Painting")]
@@ -57,6 +58,7 @@ public class AppStateControllerPhone : MonoBehaviour
     bool _reticleWasActive;
     bool _reticleUIWasEnabled;
     GraffitiRepository _repo;
+    GraffitiData _lastSpawnedData; // track last preview for delete
 
     // State
     Phase _phase = Phase.Idle;
@@ -757,7 +759,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     string CurrentOwnerEmail()
     {
-        return AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
+        return string.Empty; // local-only
     }
 
     void EnsureRepository()
@@ -811,8 +813,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
         string id = Guid.NewGuid().ToString("N");
 
-        string ownerEmail = AuthManager.Instance ? AuthManager.Instance.Email : string.Empty;
-        string ownerName = AuthManager.Instance ? AuthManager.Instance.DisplayName : string.Empty;
+        string ownerEmail = string.Empty;
+        string ownerName = "Local";
         string userFolder = string.IsNullOrEmpty(ownerEmail) ? "guest" : SanitizeForPath(ownerEmail);
         string baseDir = Path.Combine(Application.persistentDataPath, "graffiti", userFolder);
         Directory.CreateDirectory(baseDir);
@@ -937,6 +939,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 Destroy(go);
         }
         _galleryPreviews.Clear();
+        _lastSpawnedData = null;
         _galleryVisible = false;
         SetGalleryLoading(false);
     }
@@ -1098,6 +1101,7 @@ public class AppStateControllerPhone : MonoBehaviour
                     if (quad)
                     {
                         _galleryPreviews.Add(quad);
+                        _lastSpawnedData = data;
                         spawned++;
                     }
                     else
@@ -1338,6 +1342,18 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         _galleryHiddenUI.Clear();
+    }
+
+    void DeleteCurrentGalleryItemAndExit()
+    {
+        if (_lastSpawnedData != null && _repo != null)
+        {
+            _repo.Delete(_lastSpawnedData.id);
+        }
+
+        HideGalleryPreviews();
+        CoroutineRunner.Run(RescanRoutine());
+        SetTip("Deleted and returning to scan.");
     }
 
     void EnablePlaneManager()
@@ -1870,6 +1886,12 @@ public class AppStateControllerPhone : MonoBehaviour
             if (back) btnGalleryBack = back.GetComponent<Button>();
         }
 
+        if (!btnGalleryDelete && panelGalleryScreen)
+        {
+            var del = panelGalleryScreen.transform.Find("Button_Delete");
+            if (del) btnGalleryDelete = del.GetComponent<Button>();
+        }
+
         if (!galleryLoadingIndicator && panelGalleryScreen)
         {
             var loader = panelGalleryScreen.transform.Find("Loading");
@@ -1886,6 +1908,16 @@ public class AppStateControllerPhone : MonoBehaviour
             });
         }
 
+        if (btnGalleryDelete)
+        {
+            btnGalleryDelete.onClick.RemoveAllListeners();
+            btnGalleryDelete.onClick.AddListener(() =>
+            {
+                CoroutineRunner.Run(ButtonClickFeedback(btnGalleryDelete));
+                DeleteCurrentGalleryItemAndExit();
+            });
+        }
+
         // Hide overlay by default until gallery is opened
         ShowGalleryScreen(false);
     }
@@ -1897,6 +1929,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (btnGalleryBack)
             btnGalleryBack.gameObject.SetActive(visible);
+        if (btnGalleryDelete)
+            btnGalleryDelete.gameObject.SetActive(visible);
 
         SetGalleryLoading(visible); // default to loading spinner when opening
     }
@@ -1978,6 +2012,38 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             CoroutineRunner.Run(ButtonClickFeedback(btnGalleryBack));
             HideGalleryPreviews();
+        });
+
+        // Delete button
+        var del = new GameObject("Button_Delete", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        var delRt = del.GetComponent<RectTransform>();
+        delRt.sizeDelta = new Vector2(200f, 80f);
+        delRt.anchorMin = new Vector2(1f, 1f);
+        delRt.anchorMax = new Vector2(1f, 1f);
+        delRt.pivot = new Vector2(1f, 1f);
+        delRt.anchoredPosition = new Vector2(-40f, -40f);
+        del.transform.SetParent(panel.transform, false);
+        var delImg = del.GetComponent<Image>();
+        delImg.color = new Color(0.9f, 0.2f, 0.2f, 0.9f);
+        var delTextGO = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+        delTextGO.transform.SetParent(del.transform, false);
+        var delText = delTextGO.GetComponent<Text>();
+        delText.text = "Delete";
+        delText.alignment = TextAnchor.MiddleCenter;
+        delText.color = Color.white;
+        delText.fontSize = 24;
+        delText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        var delTextRt = delTextGO.GetComponent<RectTransform>();
+        delTextRt.anchorMin = Vector2.zero;
+        delTextRt.anchorMax = Vector2.one;
+        delTextRt.offsetMin = Vector2.zero;
+        delTextRt.offsetMax = Vector2.zero;
+        btnGalleryDelete = del.GetComponent<Button>();
+        btnGalleryDelete.onClick.RemoveAllListeners();
+        btnGalleryDelete.onClick.AddListener(() =>
+        {
+            CoroutineRunner.Run(ButtonClickFeedback(btnGalleryDelete));
+            DeleteCurrentGalleryItemAndExit();
         });
 
         return panel;

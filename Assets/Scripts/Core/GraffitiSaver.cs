@@ -44,8 +44,8 @@ public class GraffitiSaver : MonoBehaviour
         var record = new GraffitiRecord
         {
             graffitiId = graffitiId,
-            ownerName = AuthManager.Instance.DisplayName,
-            ownerEmail = AuthManager.Instance.Email,
+            ownerName = "Local",
+            ownerEmail = string.Empty,
 
             posX = pose.position.x,
             posY = pose.position.y,
