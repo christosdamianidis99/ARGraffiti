@@ -340,7 +340,6 @@ public class PhonePainter : MonoBehaviour
                 _strokeMat.renderQueue = rq;
             }
 
-
             var meta = go.AddComponent<StrokeMeta>();
             meta.layerIndex = layeredStrokes ? _nextLayerIndex : 0;
             meta.liftOffset = layeredStrokes ? (liftFromPlane + meta.layerIndex * layerEpsilon) : liftFromPlane;
@@ -349,13 +348,13 @@ public class PhonePainter : MonoBehaviour
             if (layeredStrokes) _nextLayerIndex++;
             _newStrokeOnNextDab = false;
 
+            // This already handles history and events
             RecordStrokeInHistory(_strokeParent);
         }
 
-        _strokeParent.gameObject.SetActive(true);
-        _strokeHistory.Add(_strokeParent);
-        _historyCursor = _strokeHistory.Count;
-        StrokeHistoryChanged?.Invoke();
+        // Just ensure active – do NOT touch history here
+        if (_strokeParent)
+            _strokeParent.gameObject.SetActive(true);
     }
 
     public bool TryCalculateStrokeBounds(out Bounds bounds)
