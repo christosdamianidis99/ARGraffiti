@@ -39,6 +39,9 @@ public class AppStateControllerPhone : MonoBehaviour
     [Header("Painting")]
     public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
 
+    [Header("Gallery")]
+    public float galleryMaxDistanceMeters = 30f;
+
     readonly System.Collections.Generic.List<GameObject> _galleryPreviews = new System.Collections.Generic.List<GameObject>();
     readonly System.Collections.Generic.List<ARAnchor> _galleryAnchors = new System.Collections.Generic.List<ARAnchor>();
     readonly Dictionary<GameObject, bool> _galleryHiddenUI = new Dictionary<GameObject, bool>();
@@ -997,6 +1000,13 @@ public class AppStateControllerPhone : MonoBehaviour
         // stale poses.
         yield return WaitForTrackingReady(3f);
 
+        if (ARSession.state != ARSessionState.SessionTracking)
+        {
+            SetTip("Move phone to resume tracking before opening gallery.");
+            RestoreAfterGallery();
+            yield break;
+        }
+
         if (_repo == null)
         {
             SetTip("No saved graffiti yet.");
@@ -1031,8 +1041,9 @@ public class AppStateControllerPhone : MonoBehaviour
         // mode if something unexpected happens while spawning previews.
         System.Exception failure = null;
 
-        bool createAnchors = forceCreateAnchors || _currentAnchor == null;
+        bool createAnchors = true;
         int spawned = 0;
+        bool anySkippedForDistance = false;
 
         foreach (var data in items)
         {
@@ -1041,6 +1052,13 @@ public class AppStateControllerPhone : MonoBehaviour
                 if (!IsFinite(data.position) || !IsFinite(data.localScale))
                 {
                     Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                    continue;
+                }
+
+                if (!IsWithinGalleryRange(data))
+                {
+                    anySkippedForDistance = true;
+                    Debug.Log($"[Gallery] Skipping {data.id} because it is farther than {galleryMaxDistanceMeters:F1}m from the camera.");
                     continue;
                 }
 
@@ -1086,7 +1104,10 @@ public class AppStateControllerPhone : MonoBehaviour
         if (!_galleryVisible)
         {
             Debug.LogWarning("[Gallery] No previews were created; returning to AR view.");
-            SetTip("No saved graffiti yet.");
+            if (anySkippedForDistance)
+                SetTip("No nearby graffiti found.");
+            else
+                SetTip("No saved graffiti yet.");
             RestoreAfterGallery();
             yield break;
         }
@@ -1098,6 +1119,16 @@ public class AppStateControllerPhone : MonoBehaviour
     bool IsFinite(Vector3 v)
     {
         return float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
+    }
+
+    bool IsWithinGalleryRange(GraffitiData data)
+    {
+        if (data == null) return false;
+        var cam = Camera.main;
+        if (!cam) return true;
+
+        float distance = Vector3.Distance(cam.transform.position, data.position);
+        return distance <= galleryMaxDistanceMeters;
     }
 
     void StopGalleryRoutine()
