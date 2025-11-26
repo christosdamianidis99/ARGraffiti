@@ -865,6 +865,18 @@ public class AppStateControllerPhone : MonoBehaviour
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
         Debug.Log("[Gallery] Request to show gallery");
+
+        // Avoid hiding the UI or changing AR configuration when tracking
+        // is paused. Previously we would enter Gallery mode, hide controls,
+        // and then wait for tracking to recover inside the coroutine. On
+        // devices where tracking never resumed, that left the camera feed
+        // frozen with no way to exit. Bail out early instead and let the
+        // user know they need to move the device to restore tracking.
+        if (ARSession.state != ARSessionState.SessionTracking)
+        {
+            SetTip("Move phone to resume tracking before opening gallery.");
+            return;
+        }
         string ownerEmail = CurrentOwnerEmail();
         EnsureRepository();
         if (_repo == null || !_repo.HasForOwner(ownerEmail))
