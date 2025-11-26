@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using UnityEngine.Networking;
 using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -957,14 +956,12 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
-        // Wait a moment for AR tracking to settle so anchors/poses are valid, then
-        // yield once so the UI can finish updating before we start heavy IO work.
-        yield return WaitForTrackingReady(3f);
-        yield return null;
-
         try
         {
-
+            // Ensure AR tracking is active before we try to place anchors. If tracking is
+            // paused (e.g., app just resumed), building now could leave previews at
+            // stale poses.
+            yield return WaitForTrackingReady(3f);
 
             if (_repo == null)
             {
@@ -999,40 +996,21 @@ public class AppStateControllerPhone : MonoBehaviour
             // Make the routine resilient so we never leave the app stuck in Gallery
             // mode if something unexpected happens while spawning previews.
             System.Exception failure = null;
-            bool timedOut = false;
 
             bool createAnchors = forceCreateAnchors || _currentAnchor == null;
             int spawned = 0;
-            int iteration = 0;
-            double lastYield = Time.realtimeSinceStartupAsDouble;
-            double hardTimeout = lastYield + 15.0; // Never block the UI indefinitely
 
             foreach (var data in items)
             {
-                // Let at least one frame render after entering gallery so the
-                // UI unfreezes before heavy IO begins.
-                yield return null;
-
-                if (Time.realtimeSinceStartupAsDouble > hardTimeout)
-                {
-                    Debug.LogWarning("[Gallery] Aborting build because it exceeded the safety timeout.");
-                    timedOut = true;
-                    break;
-                }
-
-                if (!IsFinite(data.position) || !IsFinite(data.localScale))
-                {
-                    Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
-                    continue;
-                }
-
-                Texture2D tex = null;
-                yield return LoadTextureFromDiskAsync(data.thumbPath, data.pngPath, t => tex = t);
-
-                bool shouldYield = false;
-
                 try
                 {
+                    if (!IsFinite(data.position) || !IsFinite(data.localScale))
+                    {
+                        Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                        continue;
+                    }
+
+                    var tex = LoadTextureFromDisk(data.thumbPath, data.pngPath);
                     if (tex)
                     {
                         var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
@@ -1050,17 +1028,6 @@ public class AppStateControllerPhone : MonoBehaviour
                     {
                         Debug.LogWarning($"[Gallery] Missing texture for {data.id}");
                     }
-
-                    // Avoid freezing the UI thread while loading large galleries by
-                    // yielding control every few items and whenever we've spent a
-                    // noticeable amount of time on IO/texture upload.
-                    iteration++;
-                    double now = Time.realtimeSinceStartupAsDouble;
-                    if ((iteration & 3) == 0 || now - lastYield > 0.25)
-                    {
-                        lastYield = now;
-                        shouldYield = true;
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -1069,12 +1036,8 @@ public class AppStateControllerPhone : MonoBehaviour
                     break;
                 }
 
-                if (shouldYield)
-                {
-                    yield return null;
-                }
-
-              
+                // Spread work across frames so the UI never freezes when many entries exist.
+                yield return null;
             }
 
             _galleryVisible = _galleryPreviews.Count > 0;
@@ -1082,13 +1045,6 @@ public class AppStateControllerPhone : MonoBehaviour
             if (failure != null)
             {
                 SetTip("Gallery unavailable. Returning to AR view.");
-                RestoreAfterGallery();
-                yield break;
-            }
-
-            if (timedOut)
-            {
-                SetTip("Gallery took too long. Returning to AR view.");
                 RestoreAfterGallery();
                 yield break;
             }
@@ -1116,7 +1072,6 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             _galleryRoutine = null;
         }
-        yield return null;
     }
 
     bool IsFinite(Vector3 v)
@@ -1289,39 +1244,6 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             Debug.LogWarning($"[Gallery] Failed to load texture from {path}: {ex.Message}");
             return null;
-        }
-    }
-
-    IEnumerator LoadTextureFromDiskAsync(string primary, string fallback, Action<Texture2D> onLoaded)
-    {
-        string path = (!string.IsNullOrEmpty(primary) && File.Exists(primary)) ? primary :
-            (!string.IsNullOrEmpty(fallback) && File.Exists(fallback) ? fallback : null);
-
-        if (string.IsNullOrEmpty(path))
-        {
-            onLoaded?.Invoke(null);
-            yield break;
-        }
-
-        // UnityWebRequestTexture handles IO on a worker thread, preventing stalls
-        // on the main thread when reading large PNGs from disk.
-        using (var request = UnityWebRequestTexture.GetTexture("file://" + path, nonReadable: false))
-        {
-            var op = request.SendWebRequest();
-            while (!op.isDone)
-            {
-                yield return null;
-            }
-
-            if (request.result != UnityWebRequest.Result.Success)
-            {
-                Debug.LogWarning($"[Gallery] Failed to load texture from {path}: {request.error}");
-                onLoaded?.Invoke(null);
-            }
-            else
-            {
-                onLoaded?.Invoke(DownloadHandlerTexture.GetContent(request));
-            }
         }
     }
 
