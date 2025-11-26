@@ -1224,6 +1224,14 @@ public class AppStateControllerPhone : MonoBehaviour
             _planeManagerWasEnabled = planeManager.enabled;
             _planeManagerPrevDetectionMode = planeManager.requestedDetectionMode;
             planeManager.enabled = true;
+
+            // Keep plane detection running while the gallery is open so ARCore/ARKit
+            // continues producing tracking updates. Some devices freeze the camera
+            // feed when plane detection is disabled (e.g., when entering the gallery
+            // from the PlaneSelected phase where detection is set to None). Forcing
+            // horizontal + vertical detection here maintains tracking stability, and
+            // we restore the previous mode after exiting the gallery.
+            planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
         }
 
         if (reticle)
