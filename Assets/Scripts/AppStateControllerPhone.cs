@@ -436,11 +436,11 @@ public class AppStateControllerPhone : MonoBehaviour
                 break;
 
             case Phase.PlaneSelected:
-            planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
+                planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
 
-            TogglePlaneMesh(false);   // hide dynamic meshes
-            BuildFrozenBorder();      // show frozen outline
-            // Panel_Tools is now controlled by ToggleToolPanel() - don't auto-show
+                ShowOnlySelectedPlaneMesh();
+                BuildFrozenBorder();      // show frozen outline
+                // Panel_Tools is now controlled by ToggleToolPanel() - don't auto-show
                 // if (panelTools) panelTools.SetActive(true);
                 // Save button is positioned at top-right of panelTop
                 // Hide select_surface button after selecting surface
@@ -463,7 +463,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 SetTip("Graffiti ON. Keep the dot on the surface and move the phone.");
                 break;
             case Phase.Gallery:
-                TogglePlaneMesh(false);
+                TogglePlaneMesh(false); // hide plane visuals in gallery
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
                 if (btnUndo) btnUndo.gameObject.SetActive(false);
                 if (btnRedo) btnRedo.gameObject.SetActive(false);
@@ -606,6 +606,7 @@ public class AppStateControllerPhone : MonoBehaviour
         HideAllOtherPlanes(plane);
         if (planeManager)
             planeManager.requestedDetectionMode = PlaneDetectionMode.None;
+        ShowOnlySelectedPlaneMesh();
 
         // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
@@ -864,12 +865,10 @@ public class AppStateControllerPhone : MonoBehaviour
         if (_repo)
             _repo.AddOrUpdate(data);
 
-        // Enter gallery mode right after saving. Let ShowGalleryInAR capture the
-        // current phase before it pauses plane detection so we can restore the
-        // user's previous state when exiting the gallery.
-        ShowGalleryInAR(forceCreateAnchors: true);
         UpdateGalleryButtonState();
-        ShowNotification("Saved! Showing gallery.");
+        ShowNotification("Saved! Restarting scan...");
+        // Reset to a fresh scan so the main screen is ready.
+        CoroutineRunner.Run(RescanRoutine());
     }
 
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
@@ -904,7 +903,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (painter)
             painter.StopPainting();
-        TogglePlaneMesh(false);
+        TogglePlaneMesh(false); // hide planes in gallery view
         ClearGalleryPreviews();
 
         SetPhase(Phase.Gallery);
@@ -1248,8 +1247,6 @@ public class AppStateControllerPhone : MonoBehaviour
         if (planeManager)
         {
             planeManager.enabled = true;
-            if (planeManager.requestedDetectionMode == PlaneDetectionMode.None)
-                planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
         }
     }
 
@@ -1279,14 +1276,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (planeManager)
         {
             planeManager.enabled = true;
-
-            // Keep plane detection running while the gallery is open so ARCore/ARKit
-            // continues producing tracking updates. Some devices freeze the camera
-            // feed when plane detection is disabled (e.g., when entering the gallery
-            // from the PlaneSelected phase where detection is set to None). Forcing
-            // horizontal + vertical detection here maintains tracking stability, and
-            // we restore the previous mode after exiting the gallery.
-            planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
+            // Stop plane detection during gallery mode so no new planes appear.
+            planeManager.requestedDetectionMode = PlaneDetectionMode.None;
+            TogglePlaneMesh(false); // hide any existing plane visuals
         }
 
         if (reticle)
@@ -1321,6 +1313,20 @@ public class AppStateControllerPhone : MonoBehaviour
 
         _galleryHiddenUI[go] = go.activeSelf;
         go.SetActive(false);
+    }
+
+    void ShowOnlySelectedPlaneMesh()
+    {
+        if (!planeManager || !reticle || !reticle.selectedPlane) return;
+        var keep = GetRootPlane(reticle.selectedPlane);
+        foreach (var p in planeManager.trackables)
+        {
+            var root = GetRootPlane(p);
+            var mr = p.GetComponent<MeshRenderer>();
+            bool isKeep = root == keep;
+            if (mr) mr.enabled = isKeep;
+            p.gameObject.SetActive(isKeep);
+        }
     }
 
     void RestoreGalleryUI()
@@ -1372,7 +1378,7 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             var bytes = File.ReadAllBytes(path);
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
-            tex.LoadImage(bytes);
+            tex.LoadImage(bytes, markNonReadable: true); // free CPU-side copy for perf
             return tex;
         }
         catch (Exception ex)
@@ -1430,12 +1436,28 @@ public class AppStateControllerPhone : MonoBehaviour
         if (!parent)
             parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
 
-        if (parent)
-            quad.transform.SetParent(parent, worldPositionStays: true);
+        // Anchor-backed placement for stability.
+        if (anchor && anchor.transform)
+        {
+            quad.transform.SetParent(anchor.transform, false);
+            quad.transform.localPosition = Vector3.zero;
+            quad.transform.localRotation = Quaternion.identity;
+        }
+        else
+        {
+            if (parent)
+                quad.transform.SetParent(parent, worldPositionStays: true);
+            quad.transform.position = data.position;
+            quad.transform.rotation = data.rotation;
+        }
 
-        quad.transform.position = data.position;
-        quad.transform.rotation = data.rotation;
-        quad.transform.localScale = data.localScale;
+        var targetScale = data.localScale == Vector3.zero ? Vector3.one : data.localScale;
+        quad.transform.localScale = targetScale;
+
+        // If no anchor could be created, at least add an ARAnchor component so tracking can
+        // stabilize the transform when possible.
+        if (!anchor && anchorManager && !quad.GetComponent<ARAnchor>())
+            quad.AddComponent<ARAnchor>();
 
         Debug.Log($"[Gallery] Preview {data.id} at {data.position} rot {data.rotation.eulerAngles} scale {data.localScale}");
 
@@ -1485,6 +1507,11 @@ public class AppStateControllerPhone : MonoBehaviour
             mat.mainTexture = texture;
             // Favor double-sided unlit so the preview is always visible and lit correctly.
             if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+            if (mat.HasProperty("_EmissionColor"))
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", Color.white);
+            }
             mr.material = mat;
         }
         else

@@ -206,12 +206,14 @@ public class PhonePainter : MonoBehaviour
     {
         shape = BrushShape.Circle;
         _newStrokeOnNextDab = true; // force a new stroke so the mesh prefab changes immediately
+        ResetActiveStrokeState();
     }
 
     public void SetShapeSquare()
     {
         shape = BrushShape.Square;
         _newStrokeOnNextDab = true;
+        ResetActiveStrokeState(); // force next dab to use square prefab immediately
     }
 
     public void SetColor(Color c)
@@ -523,8 +525,9 @@ public class PhonePainter : MonoBehaviour
         if (c.maxColorComponent <= 0f) return c;
 
         Color.RGBToHSV(c, out float h, out float s, out float v);
-        s = Mathf.Clamp01(Mathf.Lerp(s, 1f, 0.35f));
-        v = Mathf.Clamp(v, 0.65f, 1f);
+        // Push saturation and brightness for a bolder graffiti look.
+        s = Mathf.Clamp01(Mathf.Lerp(s, 1f, 0.75f));
+        v = Mathf.Clamp(v * 1.1f, 0.8f, 1.0f);
         var vivid = Color.HSVToRGB(h, s, v);
         vivid.a = c.a;
         return vivid;
