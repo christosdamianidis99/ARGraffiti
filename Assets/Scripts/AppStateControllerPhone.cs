@@ -1009,28 +1009,30 @@ public class AppStateControllerPhone : MonoBehaviour
 
             foreach (var data in items)
             {
+                // Let at least one frame render after entering gallery so the
+                // UI unfreezes before heavy IO begins.
+                yield return null;
+
+                if (Time.realtimeSinceStartupAsDouble > hardTimeout)
+                {
+                    Debug.LogWarning("[Gallery] Aborting build because it exceeded the safety timeout.");
+                    timedOut = true;
+                    break;
+                }
+
+                if (!IsFinite(data.position) || !IsFinite(data.localScale))
+                {
+                    Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
+                    continue;
+                }
+
+                Texture2D tex = null;
+                yield return LoadTextureFromDiskAsync(data.thumbPath, data.pngPath, t => tex = t);
+
+                bool shouldYield = false;
+
                 try
                 {
-                    // Let at least one frame render after entering gallery so the
-                    // UI unfreezes before heavy IO begins.
-                    yield return null;
-
-                    if (Time.realtimeSinceStartupAsDouble > hardTimeout)
-                    {
-                        Debug.LogWarning("[Gallery] Aborting build because it exceeded the safety timeout.");
-                        timedOut = true;
-                        break;
-                    }
-
-                    if (!IsFinite(data.position) || !IsFinite(data.localScale))
-                    {
-                        Debug.LogWarning($"[Gallery] Skipping {data.id} with invalid transform values");
-                        continue;
-                    }
-
-                    Texture2D tex = null;
-                    yield return LoadTextureFromDiskAsync(data.thumbPath, data.pngPath, t => tex = t);
-
                     if (tex)
                     {
                         var quad = SpawnPreviewQuad(data, tex, parentOverride: null, createAnchor: createAnchors);
@@ -1057,7 +1059,7 @@ public class AppStateControllerPhone : MonoBehaviour
                     if ((iteration & 3) == 0 || now - lastYield > 0.25)
                     {
                         lastYield = now;
-                        yield return null;
+                        shouldYield = true;
                     }
                 }
                 catch (Exception ex)
@@ -1065,6 +1067,11 @@ public class AppStateControllerPhone : MonoBehaviour
                     Debug.LogError($"[Gallery] Failed to spawn preview for {data.id}: {ex.Message}");
                     failure = ex;
                     break;
+                }
+
+                if (shouldYield)
+                {
+                    yield return null;
                 }
 
               
