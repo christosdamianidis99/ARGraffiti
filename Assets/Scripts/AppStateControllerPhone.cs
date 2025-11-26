@@ -865,6 +865,18 @@ public class AppStateControllerPhone : MonoBehaviour
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
         Debug.Log("[Gallery] Request to show gallery");
+
+        // Avoid hiding the UI or changing AR configuration when tracking
+        // is paused. Previously we would enter Gallery mode, hide controls,
+        // and then wait for tracking to recover inside the coroutine. On
+        // devices where tracking never resumed, that left the camera feed
+        // frozen with no way to exit. Bail out early instead and let the
+        // user know they need to move the device to restore tracking.
+        if (ARSession.state != ARSessionState.SessionTracking)
+        {
+            SetTip("Move phone to resume tracking before opening gallery.");
+            return;
+        }
         string ownerEmail = CurrentOwnerEmail();
         EnsureRepository();
         if (_repo == null || !_repo.HasForOwner(ownerEmail))
@@ -1212,6 +1224,14 @@ public class AppStateControllerPhone : MonoBehaviour
             _planeManagerWasEnabled = planeManager.enabled;
             _planeManagerPrevDetectionMode = planeManager.requestedDetectionMode;
             planeManager.enabled = true;
+
+            // Keep plane detection running while the gallery is open so ARCore/ARKit
+            // continues producing tracking updates. Some devices freeze the camera
+            // feed when plane detection is disabled (e.g., when entering the gallery
+            // from the PlaneSelected phase where detection is set to None). Forcing
+            // horizontal + vertical detection here maintains tracking stability, and
+            // we restore the previous mode after exiting the gallery.
+            planeManager.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
         }
 
         if (reticle)
