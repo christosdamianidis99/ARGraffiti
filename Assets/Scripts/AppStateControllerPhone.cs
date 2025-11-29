@@ -901,6 +901,14 @@ public class AppStateControllerPhone : MonoBehaviour
 
         EnsureCameraFeedActive();
         StopGalleryRoutine();
+        
+        // Ensure buttons are initialized before showing gallery
+        if (!btnGalleryBack || !btnGalleryDelete)
+        {
+            Debug.Log("[Gallery] Buttons not initialized, calling InitializeGalleryScreen...");
+            InitializeGalleryScreen();
+        }
+        
         PauseForGallery();
 
         if (painter)
@@ -1870,26 +1878,107 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void InitializeGalleryScreen()
     {
+        Debug.Log("[Gallery] InitializeGalleryScreen called");
+        
+        // Try to find Panel_Gallery in the scene (including inactive objects)
         if (!panelGalleryScreen)
         {
-            var go = GameObject.Find("Panel_Gallery");
-            if (go) panelGalleryScreen = go;
+            // GameObject.Find only finds active objects, so search all objects
+            GameObject go = GameObject.Find("Panel_Gallery");
+            if (go == null)
+            {
+                // Search in all GameObjects including inactive ones
+                var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+                foreach (var obj in allObjects)
+                {
+                    if (obj.name == "Panel_Gallery" && obj.scene.isLoaded)
+                    {
+                        go = obj;
+                        break;
+                    }
+                }
+            }
+            
+            if (go)
+            {
+                panelGalleryScreen = go;
+                Debug.Log($"[Gallery] Found Panel_Gallery in scene: {go.name}, Active: {go.activeSelf}, Scene: {go.scene.name}");
+            }
+            else
+            {
+                Debug.LogWarning("[Gallery] Panel_Gallery not found in any loaded scene, will create dynamically if needed");
+            }
         }
+        
+        // If still not found, create it dynamically (fallback)
         if (!panelGalleryScreen)
         {
+            Debug.Log("[Gallery] Creating Panel_Gallery dynamically...");
             panelGalleryScreen = BuildRuntimeGalleryPanel();
         }
 
         if (!btnGalleryBack && panelGalleryScreen)
         {
             var back = panelGalleryScreen.transform.Find("Button_Back");
-            if (back) btnGalleryBack = back.GetComponent<Button>();
+            if (back)
+            {
+                btnGalleryBack = back.GetComponent<Button>();
+                Debug.Log($"[Gallery] Found Button_Back in Panel_Gallery: {back.name}, Parent: {back.parent?.name}");
+            }
         }
 
         if (!btnGalleryDelete && panelGalleryScreen)
         {
             var del = panelGalleryScreen.transform.Find("Button_Delete");
-            if (del) btnGalleryDelete = del.GetComponent<Button>();
+            if (del)
+            {
+                btnGalleryDelete = del.GetComponent<Button>();
+                Debug.Log($"[Gallery] Found Button_Delete in Panel_Gallery: {del.name}, Parent: {del.parent?.name}");
+            }
+        }
+
+        // Set icons for buttons if they exist (pre-created in Editor)
+        // Look for Icon child GameObject (like scan button structure)
+        if (btnGalleryBack)
+        {
+            var backIcon = btnGalleryBack.transform.Find("Icon")?.GetComponent<Image>();
+            var backText = btnGalleryBack.transform.Find("Text")?.GetComponent<Text>();
+            if (backIcon != null)
+            {
+                SetButtonIconOnImage(backIcon, "back");
+                Debug.Log($"[Gallery] Set icon for Button_Back, Icon sprite: {backIcon.sprite?.name ?? "null"}, Icon active: {backIcon.gameObject.activeSelf}");
+                // Hide Text if Icon exists (like scan button style - icon only)
+                if (backText != null)
+                {
+                    backText.gameObject.SetActive(false);
+                    Debug.Log("[Gallery] Hid Text for Button_Back (using Icon instead)");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[Gallery] Button_Back Icon not found!");
+            }
+        }
+
+        if (btnGalleryDelete)
+        {
+            var delIcon = btnGalleryDelete.transform.Find("Icon")?.GetComponent<Image>();
+            var delText = btnGalleryDelete.transform.Find("Text")?.GetComponent<Text>();
+            if (delIcon != null)
+            {
+                SetButtonIconOnImage(delIcon, "bin");
+                Debug.Log($"[Gallery] Set icon for Button_Delete, Icon sprite: {delIcon.sprite?.name ?? "null"}, Icon active: {delIcon.gameObject.activeSelf}");
+                // Hide Text if Icon exists (like scan button style - icon only)
+                if (delText != null)
+                {
+                    delText.gameObject.SetActive(false);
+                    Debug.Log("[Gallery] Hid Text for Button_Delete (using Icon instead)");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[Gallery] Button_Delete Icon not found!");
+            }
         }
 
         if (!galleryLoadingIndicator && panelGalleryScreen)
@@ -1924,13 +2013,20 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void ShowGalleryScreen(bool visible)
     {
+        Debug.Log($"[Gallery] ShowGalleryScreen({visible}), panelGalleryScreen: {panelGalleryScreen?.name ?? "null"}, btnGalleryBack: {btnGalleryBack?.name ?? "null"}, btnGalleryDelete: {btnGalleryDelete?.name ?? "null"}");
         if (panelGalleryScreen)
             panelGalleryScreen.SetActive(visible);
 
         if (btnGalleryBack)
+        {
             btnGalleryBack.gameObject.SetActive(visible);
+            Debug.Log($"[Gallery] Button_Back set to active: {visible}, Parent: {btnGalleryBack.transform.parent?.name}");
+        }
         if (btnGalleryDelete)
+        {
             btnGalleryDelete.gameObject.SetActive(visible);
+            Debug.Log($"[Gallery] Button_Delete set to active: {visible}, Parent: {btnGalleryDelete.transform.parent?.name}");
+        }
 
         SetGalleryLoading(visible); // default to loading spinner when opening
     }
@@ -1952,6 +2048,94 @@ public class AppStateControllerPhone : MonoBehaviour
             if (canvas) parent = canvas.transform;
         }
 
+        // Check if Panel_Gallery already exists (pre-created in Editor)
+        // Search including inactive objects
+        GameObject existingPanel = GameObject.Find("Panel_Gallery");
+        if (existingPanel == null)
+        {
+            // Search in all GameObjects including inactive ones
+            var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+            foreach (var obj in allObjects)
+            {
+                if (obj.name == "Panel_Gallery" && obj.scene.isLoaded)
+                {
+                    existingPanel = obj;
+                    break;
+                }
+            }
+        }
+        
+        if (existingPanel != null)
+        {
+            Debug.Log($"[Gallery] Using existing Panel_Gallery: {existingPanel.name}, Active: {existingPanel.activeSelf}, Scene: {existingPanel.scene.name}, Parent: {existingPanel.transform.parent?.name ?? "None"}");
+            // Use existing panel and find buttons
+            var existingBack = existingPanel.transform.Find("Button_Back");
+            var existingDel = existingPanel.transform.Find("Button_Delete");
+            var existingLoading = existingPanel.transform.Find("Loading");
+
+            if (existingBack != null)
+            {
+                Debug.Log($"[Gallery] Found Button_Back in existing panel: {existingBack.name}, Has Icon: {existingBack.Find("Icon") != null}, Has Text: {existingBack.Find("Text") != null}");
+                btnGalleryBack = existingBack.GetComponent<Button>();
+                // 设置透明背景
+                var existingBackImg = existingBack.GetComponent<Image>();
+                if (existingBackImg != null)
+                {
+                    existingBackImg.color = new Color(1f, 1f, 1f, 0f); // 透明背景
+                }
+                if (btnGalleryBack != null)
+                {
+                    btnGalleryBack.onClick.RemoveAllListeners();
+                    btnGalleryBack.onClick.AddListener(() =>
+                    {
+                        CoroutineRunner.Run(ButtonClickFeedback(btnGalleryBack));
+                        HideGalleryPreviews();
+                    });
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[Gallery] Button_Back not found in existing Panel_Gallery");
+            }
+
+            if (existingDel != null)
+            {
+                Debug.Log($"[Gallery] Found Button_Delete in existing panel: {existingDel.name}, Has Icon: {existingDel.Find("Icon") != null}, Has Text: {existingDel.Find("Text") != null}");
+                btnGalleryDelete = existingDel.GetComponent<Button>();
+                // 设置透明背景
+                var existingDelImg = existingDel.GetComponent<Image>();
+                if (existingDelImg != null)
+                {
+                    existingDelImg.color = new Color(0.9f, 0.2f, 0.2f, 0f); // 透明背景
+                }
+                if (btnGalleryDelete != null)
+                {
+                    btnGalleryDelete.onClick.RemoveAllListeners();
+                    btnGalleryDelete.onClick.AddListener(() =>
+                    {
+                        CoroutineRunner.Run(ButtonClickFeedback(btnGalleryDelete));
+                        DeleteCurrentGalleryItemAndExit();
+                    });
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[Gallery] Button_Delete not found in existing Panel_Gallery");
+            }
+
+            if (existingLoading != null)
+            {
+                galleryLoadingIndicator = existingLoading.gameObject;
+            }
+
+            return existingPanel;
+        }
+        else
+        {
+            Debug.Log("[Gallery] Panel_Gallery not found, creating dynamically");
+        }
+
+        // Fallback: Create panel dynamically if not found
         var panel = new GameObject("Panel_Gallery", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         var rt = panel.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
@@ -1974,7 +2158,10 @@ public class AppStateControllerPhone : MonoBehaviour
         back.transform.SetParent(panel.transform, false);
 
         var backImg = back.GetComponent<Image>();
-        backImg.color = new Color(1f, 1f, 1f, 0.85f);
+        backImg.color = new Color(1f, 1f, 1f, 0f); // 透明背景
+        backImg.type = Image.Type.Simple;
+        backImg.preserveAspect = false;
+        backImg.useSpriteMesh = false;
 
         var backTextGO = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
         backTextGO.transform.SetParent(back.transform, false);
@@ -1982,12 +2169,28 @@ public class AppStateControllerPhone : MonoBehaviour
         backText.text = "Back";
         backText.alignment = TextAnchor.MiddleCenter;
         backText.color = Color.black;
-        backText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        backText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         var backTextRt = backTextGO.GetComponent<RectTransform>();
         backTextRt.anchorMin = Vector2.zero;
         backTextRt.anchorMax = Vector2.one;
         backTextRt.offsetMin = Vector2.zero;
         backTextRt.offsetMax = Vector2.zero;
+
+        // Create Icon child GameObject for back button
+        var backIconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        var backIconRt = backIconGO.GetComponent<RectTransform>();
+        backIconRt.SetParent(back.transform, false);
+        backIconRt.anchorMin = Vector2.zero;
+        backIconRt.anchorMax = Vector2.one;
+        backIconRt.offsetMin = Vector2.zero;
+        backIconRt.offsetMax = Vector2.zero;
+        var backIconImg = backIconGO.GetComponent<Image>();
+        backIconImg.color = Color.white;
+        backIconImg.type = Image.Type.Simple;
+        backIconImg.useSpriteMesh = true;
+        backIconImg.preserveAspect = true;
+        // Hide Text, show Icon only
+        backTextGO.SetActive(false);
 
         // Loading indicator
         var loading = new GameObject("Loading", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
@@ -2002,11 +2205,17 @@ public class AppStateControllerPhone : MonoBehaviour
         loadingText.alignment = TextAnchor.MiddleCenter;
         loadingText.fontSize = 32;
         loadingText.color = Color.white;
-        loadingText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        loadingText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
         panel.SetActive(false);
         galleryLoadingIndicator = loading;
         btnGalleryBack = back.GetComponent<Button>();
+        // Set icon for back button Icon child
+        var backIconImage = back.transform.Find("Icon")?.GetComponent<Image>();
+        if (backIconImage != null)
+        {
+            SetButtonIconOnImage(backIconImage, "back");
+        }
         btnGalleryBack.onClick.RemoveAllListeners();
         btnGalleryBack.onClick.AddListener(() =>
         {
@@ -2024,7 +2233,10 @@ public class AppStateControllerPhone : MonoBehaviour
         delRt.anchoredPosition = new Vector2(-40f, -40f);
         del.transform.SetParent(panel.transform, false);
         var delImg = del.GetComponent<Image>();
-        delImg.color = new Color(0.9f, 0.2f, 0.2f, 0.9f);
+        delImg.color = new Color(0.9f, 0.2f, 0.2f, 0f); // 透明背景
+        delImg.type = Image.Type.Simple;
+        delImg.preserveAspect = false;
+        delImg.useSpriteMesh = false;
         var delTextGO = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
         delTextGO.transform.SetParent(del.transform, false);
         var delText = delTextGO.GetComponent<Text>();
@@ -2032,13 +2244,36 @@ public class AppStateControllerPhone : MonoBehaviour
         delText.alignment = TextAnchor.MiddleCenter;
         delText.color = Color.white;
         delText.fontSize = 24;
-        delText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        delText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         var delTextRt = delTextGO.GetComponent<RectTransform>();
         delTextRt.anchorMin = Vector2.zero;
         delTextRt.anchorMax = Vector2.one;
         delTextRt.offsetMin = Vector2.zero;
         delTextRt.offsetMax = Vector2.zero;
+
+        // Create Icon child GameObject for delete button
+        var delIconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        var delIconRt = delIconGO.GetComponent<RectTransform>();
+        delIconRt.SetParent(del.transform, false);
+        delIconRt.anchorMin = Vector2.zero;
+        delIconRt.anchorMax = Vector2.one;
+        delIconRt.offsetMin = Vector2.zero;
+        delIconRt.offsetMax = Vector2.zero;
+        var delIconImg = delIconGO.GetComponent<Image>();
+        delIconImg.color = Color.white;
+        delIconImg.type = Image.Type.Simple;
+        delIconImg.useSpriteMesh = true;
+        delIconImg.preserveAspect = true;
+        // Hide Text, show Icon only
+        delTextGO.SetActive(false);
+
         btnGalleryDelete = del.GetComponent<Button>();
+        // Set icon for delete button Icon child
+        var delIconImage = del.transform.Find("Icon")?.GetComponent<Image>();
+        if (delIconImage != null)
+        {
+            SetButtonIconOnImage(delIconImage, "bin");
+        }
         btnGalleryDelete.onClick.RemoveAllListeners();
         btnGalleryDelete.onClick.AddListener(() =>
         {
@@ -2109,6 +2344,67 @@ public class AppStateControllerPhone : MonoBehaviour
             buttonImage.useSpriteMesh = true;
             buttonImage.preserveAspect = true;
             buttonImage.alphaHitTestMinimumThreshold = 0.1f; // Use icon alpha instead of a solid background
+        }
+        else
+        {
+            Debug.LogWarning($"Could not load icon: {iconName}.png. Please ensure the file exists in Assets/Textures/ or Resources/Textures/");
+        }
+    }
+
+    /// <summary>
+    /// Set icon sprite directly on an Image component (for Icon child GameObject)
+    /// </summary>
+    void SetButtonIconOnImage(Image image, string iconName)
+    {
+        if (!image) return;
+
+        // Try loading from Resources folder first (runtime)
+        Sprite sprite = Resources.Load<Sprite>($"Textures/{iconName}");
+
+        // If not found in Resources, try loading as Texture2D and convert to Sprite
+        if (sprite == null)
+        {
+            Texture2D texture = Resources.Load<Texture2D>($"Textures/{iconName}");
+            if (texture != null)
+            {
+                sprite = Sprite.Create(
+                    texture,
+                    new Rect(0, 0, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f)
+                );
+            }
+        }
+
+#if UNITY_EDITOR
+        // Try loading directly from Assets path (editor only)
+        if (sprite == null)
+        {
+            string assetPath = $"Assets/Textures/{iconName}.png";
+            sprite = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+            if (sprite == null)
+            {
+                // Try loading as Texture2D and convert
+                Texture2D texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+                if (texture != null)
+                {
+                    sprite = Sprite.Create(
+                        texture,
+                        new Rect(0, 0, texture.width, texture.height),
+                        new Vector2(0.5f, 0.5f)
+                    );
+                }
+            }
+        }
+#endif
+
+        if (sprite != null)
+        {
+            image.sprite = sprite;
+            image.type = Image.Type.Simple;
+            image.useSpriteMesh = true;
+            image.preserveAspect = true;
+            image.color = Color.white;
+            image.material = null;
         }
         else
         {
