@@ -44,7 +44,6 @@ public class ToolUIController : MonoBehaviour
             return;
         }
 
-        // Store all color buttons
         allColorButtons = new Button[] { btnRed, btnGreen, btnBlue, btnYellow, btnWhite, btnBlack };
         allButtonTransforms = new RectTransform[allColorButtons.Length];
         originalScales = new Vector3[allColorButtons.Length];
@@ -61,7 +60,6 @@ public class ToolUIController : MonoBehaviour
             }
         }
 
-        // Colors
         btnRed.onClick.AddListener(() => { painter.SetColor(Color.red); SelectColorButton(btnRed); });
         btnGreen.onClick.AddListener(() => { painter.SetColor(Color.green); SelectColorButton(btnGreen); });
         btnBlue.onClick.AddListener(() => { painter.SetColor(Color.blue); SelectColorButton(btnBlue); });
@@ -69,7 +67,6 @@ public class ToolUIController : MonoBehaviour
         btnWhite.onClick.AddListener(() => { painter.SetColor(Color.white); SelectColorButton(btnWhite); });
         btnBlack.onClick.AddListener(() => { painter.SetColor(Color.black); SelectColorButton(btnBlack); });
 
-        // Size slider
         sizeSlider.minValue = 0.02f;
         sizeSlider.maxValue = 0.12f;
         sizeSlider.value = painter.brushSize;
@@ -79,7 +76,6 @@ public class ToolUIController : MonoBehaviour
             if (sizeValue) sizeValue.text = $"{v:0.00}";
         });
 
-        // Overwrite toggle
         if (toggleOverwrite)
         {
             toggleOverwrite.isOn = painter.overwriteErase;
@@ -99,14 +95,12 @@ public class ToolUIController : MonoBehaviour
 
     void SelectColorButton(Button selectedButton)
     {
-        // Reset all buttons to original scale
         for (int i = 0; i < allColorButtons.Length; i++)
         {
             if (allColorButtons[i] != null && allButtonTransforms[i] != null)
             {
                 if (allColorButtons[i] == selectedButton)
                 {
-                    // Scale up the selected button
                     if (scaleAnimationCoroutine != null)
                     {
                         StopCoroutine(scaleAnimationCoroutine);
@@ -115,7 +109,6 @@ public class ToolUIController : MonoBehaviour
                 }
                 else
                 {
-                    // Scale down other buttons
                     if (allButtonTransforms[i].localScale != originalScales[i])
                     {
                         StartCoroutine(ScaleButton(allButtonTransforms[i], allButtonTransforms[i].localScale, originalScales[i]));
@@ -124,20 +117,16 @@ public class ToolUIController : MonoBehaviour
             }
         }
 
-        // Update highlight ring position
         MoveHighlight(selectedButton.transform as RectTransform);
 
-        // Update selected button reference
         currentSelectedButton = selectedButton;
 
-        // Update button colors for better visual feedback
         UpdateButtonColors(selectedButton);
     }
 
     void UpdateButtonColors(Button selected)
     {
-        // Store original colors for each button (only on first call)
-        // This ensures consistent behavior across iOS and Android
+
         for (int i = 0; i < allColorButtons.Length; i++)
         {
             if (allColorButtons[i] != null)
@@ -147,10 +136,8 @@ public class ToolUIController : MonoBehaviour
                 {
                     if (allColorButtons[i] == selected)
                     {
-                        // Make selected button brighter and more saturated
-                        // This works consistently on both iOS and Android
+
                         var originalColor = image.color;
-                        // Use platform-independent color calculation
                         image.color = new Color(
                             Mathf.Clamp01(originalColor.r * 1.3f),
                             Mathf.Clamp01(originalColor.g * 1.3f),
@@ -158,33 +145,27 @@ public class ToolUIController : MonoBehaviour
                             originalColor.a
                         );
                     }
-                    // Other buttons will be reset by the button's built-in color transition system
-                    // which works consistently across all platforms
+     
                 }
             }
         }
     }
 
-    /// <summary>
-    /// Smoothly scales a button with animation. Works consistently on iOS and Android.
-    /// Uses Time.deltaTime which is platform-independent.
-    /// </summary>
+
     IEnumerator ScaleButton(RectTransform target, Vector3 startScale, Vector3 endScale)
     {
         if (target == null) yield break;
 
         float elapsed = 0f;
-        // Use Time.deltaTime which works consistently across iOS, Android, and all platforms
         while (elapsed < scaleAnimationDuration)
         {
             if (target == null) yield break;
 
-            // Time.deltaTime is platform-independent and works on both iOS and Android
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / scaleAnimationDuration);
-            t = Mathf.SmoothStep(0f, 1f, t); // Smooth easing for consistent feel on all platforms
+            t = Mathf.SmoothStep(0f, 1f, t);
             target.localScale = Vector3.Lerp(startScale, endScale, t);
-            yield return null; // Wait for next frame (consistent across all platforms)
+            yield return null;
         }
 
         if (target != null)
@@ -202,20 +183,17 @@ public class ToolUIController : MonoBehaviour
         ring.anchoredPosition = Vector2.zero;
         ring.SetAsLastSibling();
 
-        // Make highlight ring larger and more visible
         if (ring.sizeDelta.x == 0 || ring.sizeDelta.y == 0)
         {
-            // If ring size is not set, calculate based on button size
             var buttonSize = target.sizeDelta;
             ring.sizeDelta = new Vector2(buttonSize.x * 1.2f, buttonSize.y * 1.2f);
         }
 
-        // Make ring more visible
         var ringImage = highlightRing.GetComponent<Image>();
         if (ringImage != null)
         {
             var ringColor = ringImage.color;
-            ringColor.a = 0.9f; // Make it more opaque
+            ringColor.a = 0.9f; 
             ringImage.color = ringColor;
         }
     }

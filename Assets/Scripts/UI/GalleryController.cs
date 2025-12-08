@@ -1,10 +1,5 @@
 using UnityEngine;
 
-/// <summary>
-/// Lightweight bridge that routes gallery requests to the AR world presenter inside
-/// <see cref="AppStateControllerPhone"/>. The old scroll/list UI is replaced by an
-/// in-world gallery that spawns preview quads at their saved poses.
-/// </summary>
 public class GalleryController : MonoBehaviour
 {
     public string ownerEmailFilter;

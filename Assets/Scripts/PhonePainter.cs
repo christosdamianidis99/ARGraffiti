@@ -46,7 +46,7 @@ public class PhonePainter : MonoBehaviour
 
     [Header("Rendering Layers")]
     public bool layeredStrokes = true;
-    public float layerEpsilon = 0.0008f; // 0.8 mm
+    public float layerEpsilon = 0.0008f; 
     Material _baseCircle, _baseSquare;
 
     [Header("Overwrite Erase")]
@@ -85,11 +85,9 @@ public class PhonePainter : MonoBehaviour
     }
     void OnDestroy()
     {
-        // Destroy per-stroke materials we created
         foreach (var m in _ownedMaterials)
             if (m) Destroy(m);
 
-        // Destroy our base copies
         if (_baseCircle) Destroy(_baseCircle);
         if (_baseSquare) Destroy(_baseSquare);
     }
@@ -102,9 +100,7 @@ public class PhonePainter : MonoBehaviour
         ResetActiveStrokeState();
     }
 
-    /// <summary>
-    /// Strict lock that remembers the boundary snapshot and anchor transform so strokes stay glued to the selected plane.
-    /// </summary>
+
     public void LockToPlaneStrict(ARPlane plane, Vector2[] boundaryLocal, Transform anchorRoot)
     {
         lockedPlane = plane;
@@ -137,8 +133,7 @@ public class PhonePainter : MonoBehaviour
         _newStrokeOnNextDab = true;
         _lastPos = null;
         _hasSmoothedSample = false;
-        // Ensure brushSize is current (it should already be synced from UI, but make sure)
-        // brushSize is already set via SetBrushSize() from ToolUIController's sizeSlider
+  
     }
 
     public void StopPainting()
@@ -205,7 +200,7 @@ public class PhonePainter : MonoBehaviour
     public void SetShapeCircle()
     {
         shape = BrushShape.Circle;
-        _newStrokeOnNextDab = true; // force a new stroke so the mesh prefab changes immediately
+        _newStrokeOnNextDab = true;
         ResetActiveStrokeState();
     }
 
@@ -213,20 +208,19 @@ public class PhonePainter : MonoBehaviour
     {
         shape = BrushShape.Square;
         _newStrokeOnNextDab = true;
-        ResetActiveStrokeState(); // force next dab to use square prefab immediately
+        ResetActiveStrokeState(); 
     }
 
     public void SetColor(Color c)
     {
         color = BoostGraffitiColor(c);
-        _newStrokeOnNextDab = true; // start new stroke next dab so old color remains
+        _newStrokeOnNextDab = true; 
     }
 
     void Update()
     {
         if (!paintingActive || lockedPlane == null || _lockedPlaneTransform == null) return;
 
-        // Avoid invalid hit tests when tracking is lost or the camera feed is unavailable.
         if (ARSession.state != ARSessionState.SessionTracking)
         {
             _lastPos = null;
@@ -242,7 +236,6 @@ public class PhonePainter : MonoBehaviour
         var n = hit.pose.up;
         var pos = hit.pose.position;
 
-        // Smooth camera jitter to keep strokes stable
         if (!_hasSmoothedSample)
         {
             _smoothedPos = pos;
@@ -285,26 +278,21 @@ public class PhonePainter : MonoBehaviour
 
             var dab = Instantiate(prefab, pos + n * lift, Quaternion.identity, _strokeParent);
             dab.transform.forward = n;
-            // Use current brushSize value - ensure it matches the UI slider value
-            // This is updated in real-time via SetBrushSize() from ToolUIController
+
             dab.transform.localScale = Vector3.one * brushSize;
 
-            // Assign Paint layer only if valid
             if (_paintLayerIndex >= 0) dab.layer = _paintLayerIndex;
 
-            // Collider
             var col = dab.GetComponent<Collider>();
             if (!col)
             {
                 var sc = dab.AddComponent<SphereCollider>();
                 sc.isTrigger = true;
-                // Effective world radius should ≈ brushSize * 0.5
-                // Because localScale = brushSize, set base radius to 0.5 so world radius matches.
+
                 sc.radius = 0.5f;
             }
             else if (col is MeshCollider mc)
             {
-                // MeshCollider triggers require convex meshes; fall back to convex to avoid runtime errors on device.
                 mc.convex = true;
                 mc.isTrigger = true;
             }
@@ -336,7 +324,7 @@ public class PhonePainter : MonoBehaviour
             _strokeMat = baseMat ? new Material(baseMat) : null;
             if (_strokeMat)
             {
-                _ownedMaterials.Add(_strokeMat);           // track for destruction
+                _ownedMaterials.Add(_strokeMat);           
                 _strokeMat.color = color;
                 int rq = 3000 + Mathf.Clamp(_nextLayerIndex, 0, 500);
                 _strokeMat.renderQueue = rq;
@@ -350,11 +338,9 @@ public class PhonePainter : MonoBehaviour
             if (layeredStrokes) _nextLayerIndex++;
             _newStrokeOnNextDab = false;
 
-            // This already handles history and events
             RecordStrokeInHistory(_strokeParent);
         }
 
-        // Just ensure active – do NOT touch history here
         if (_strokeParent)
             _strokeParent.gameObject.SetActive(true);
     }
@@ -525,7 +511,6 @@ public class PhonePainter : MonoBehaviour
         if (c.maxColorComponent <= 0f) return c;
 
         Color.RGBToHSV(c, out float h, out float s, out float v);
-        // Push saturation and brightness for a bolder graffiti look.
         s = Mathf.Clamp01(Mathf.Lerp(s, 1f, 0.75f));
         v = Mathf.Clamp(v * 1.1f, 0.8f, 1.0f);
         var vivid = Color.HSVToRGB(h, s, v);

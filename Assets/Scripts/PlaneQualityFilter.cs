@@ -3,17 +3,14 @@ using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
-/// <summary>
-/// Filters ARFoundation planes so only ONE high-quality, stable plane is shown during scanning.
-/// Apply to the same GameObject that has ARPlaneManager (e.g., XR Origin).
-/// </summary>
+
 [RequireComponent(typeof(ARPlaneManager))]
 public class PlaneQualityFilter : MonoBehaviour
 {
     [Header("External (assign)")]
     public ARPlaneManager planeManager;
-    public ARRaycastManager raycaster;      // used to read center hit if you want reticle-based picking
-    public Camera arCamera;                 // Main Camera
+    public ARRaycastManager raycaster;      
+    public Camera arCamera;                 
 
     [Header("Visibility")]
     public bool hideAllUntilCriteriaPass = true;
@@ -21,41 +18,38 @@ public class PlaneQualityFilter : MonoBehaviour
 
     [Header("Quality Gates")]
     [Tooltip("Minimum planar area (m²) required to consider a plane candidate.")]
-    public float minArea = 0.15f;                   // 0.15 m² ~ 40×40 cm
+    public float minArea = 0.15f;                   
     [Tooltip("Minimum seconds a plane must exist before we consider it.")]
-    public float minAge = 0.25f;                    // 250 ms
+    public float minAge = 0.25f;                    
     [Tooltip("Plane is 'stable' when its smoothed area growth rate is below this (m²/s) for stableDwell seconds.")]
-    public float maxAreaGrowthRate = 0.15f;         // m² per second
-    public float stableDwell = 0.25f;               // seconds area must stay 'calm'
+    public float maxAreaGrowthRate = 0.15f;         
+    public float stableDwell = 0.25f;               
 
     [Header("Geometry Constraints")]
     [Tooltip("Accept only planes whose normal tilt (deg) is within this angle of the target alignment.")]
-    public float maxNormalTiltDeg = 20f;            // 0 = exact horizontal/vertical
+    public float maxNormalTiltDeg = 20f;           
     [Tooltip("Ignore planes closer than this to camera.")]
-    public float minDistance = 0.25f;               // meters
+    public float minDistance = 0.25f;               
     [Tooltip("Ignore planes further than this from camera.")]
-    public float maxDistance = 3.5f;                // meters
+    public float maxDistance = 3.5f;               
 
     [Header("Alignment Preference")]
     public bool autoPickAlignmentFromFirstHit = true;
-    public PlaneDetectionMode preferredMode = PlaneDetectionMode.Horizontal; // used if autoPickAlignmentFromFirstHit = false
+    public PlaneDetectionMode preferredMode = PlaneDetectionMode.Horizontal; 
 
-    // runtime state
-    ARPlane _primary;                                // the one we show
+    ARPlane _primary;                                
     readonly Dictionary<TrackableId, Info> _info = new();
 
     class Info
     {
-        public double firstSeen;     // realtimeSinceStartup
+        public double firstSeen;     
         public float lastArea;
-        public float emaGrowth;      // exponential moving avg of area growth rate
-        public double lastUpdate;    // time of last area sample
-        public double stableSince;   // when growth got under threshold
+        public float emaGrowth;      
+        public double lastUpdate;    
+        public double stableSince;   
     }
-    // === Public helpers so the controller can read status ===
     public ARPlane PrimaryPlane => _primary;
 
-    /// True if we currently have a primary plane AND it still passes stability gates.
     public bool PrimaryIsStable()
     {
         if (_primary == null) return false;
@@ -82,13 +76,11 @@ public class PlaneQualityFilter : MonoBehaviour
     void Start()
     {
         if (!planeManager) planeManager = GetComponent<ARPlaneManager>();
-        // start fully hidden if requested
         if (hideAllUntilCriteriaPass) ToggleAllMeshes(false);
     }
 
     void Update()
     {
-        // Maintain primary (follow merges) and enforce visibility
         if (_primary)
         {
             var root = GetRoot(_primary);
@@ -100,7 +92,6 @@ public class PlaneQualityFilter : MonoBehaviour
             ToggleAllMeshes(false);
         }
 
-        // If we want to auto-choose alignment based on the center ray hit, do it once while no primary is set.
         if (autoPickAlignmentFromFirstHit && _primary == null && raycaster && arCamera)
         {
             var center = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
@@ -124,9 +115,7 @@ public class PlaneQualityFilter : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Clear cached plane data so a fresh scan can start without stale primaries.
-    /// </summary>
+
     public void ResetFilterForScan()
     {
         _primary = null;
@@ -135,14 +124,10 @@ public class PlaneQualityFilter : MonoBehaviour
             ToggleAllMeshes(false);
     }
 
-    /// <summary>
-    /// Hide every plane mesh immediately (used when locking the surface).
-    /// </summary>
+
     public void ForceHideAllMeshes() => ToggleAllMeshes(false);
 
-    /// <summary>
-    /// Re-apply the visibility rules (show the primary plane if we have one).
-    /// </summary>
+
     public void RefreshVisibility()
     {
         if (!planeManager) return;
@@ -162,14 +147,12 @@ public class PlaneQualityFilter : MonoBehaviour
     {
         double now = Time.realtimeSinceStartupAsDouble;
 
-        // Track/initialize new planes
         foreach (var p in args.added)
         {
             if (!_info.ContainsKey(p.trackableId))
                 _info[p.trackableId] = new Info { firstSeen = now, lastUpdate = now, stableSince = -1 };
         }
 
-        // Update all known planes
         foreach (var p in planeManager.trackables)
         {
             var root = GetRoot(p);
@@ -180,14 +163,11 @@ public class PlaneQualityFilter : MonoBehaviour
                 _info[id] = inf;
             }
 
-            // Compute area & growth
             float area = ComputeArea(root);
             float dt = Mathf.Max(1e-3f, (float)(now - inf.lastUpdate));
-            float growth = Mathf.Max(0f, (area - inf.lastArea) / dt); // m²/s; clamp to >=0
-            // EMA to smooth (alpha ~ 0.5)
+            float growth = Mathf.Max(0f, (area - inf.lastArea) / dt); 
             inf.emaGrowth = (inf.emaGrowth * 0.5f) + (growth * 0.5f);
 
-            // stability dwell timer
             if (inf.emaGrowth <= maxAreaGrowthRate)
             {
                 if (inf.stableSince < 0) inf.stableSince = now;
@@ -198,7 +178,6 @@ public class PlaneQualityFilter : MonoBehaviour
             inf.lastUpdate = now;
         }
 
-        // Decide which plane to show (if we don't have one yet)
         if (_primary == null)
         {
             ARPlane best = null;
@@ -209,7 +188,6 @@ public class PlaneQualityFilter : MonoBehaviour
                 var root = GetRoot(p);
                 if (!PassesGates(root, now)) { Hide(root); continue; }
 
-                // scoring: bigger & closer gets higher score
                 float area = Mathf.Max(ComputeArea(root), 1e-4f);
                 float dist = Vector3.Distance(arCamera ? arCamera.transform.position : Vector3.zero, root.transform.position);
                 float score = area / Mathf.Max(dist, 0.2f);
@@ -232,18 +210,15 @@ public class PlaneQualityFilter : MonoBehaviour
         }
         else
         {
-            // keep only primary visible
             if (showOnlyPrimary) ShowOnly(_primary);
         }
     }
 
-    // ---------------- Filters / Gates ----------------
 
     bool PassesGates(ARPlane p, double now)
     {
         if (!p) return false;
 
-        // alignment gate
         if (preferredMode == PlaneDetectionMode.Horizontal)
         {
             if (!(p.alignment == PlaneAlignment.HorizontalUp || p.alignment == PlaneAlignment.HorizontalDown))
@@ -254,7 +229,6 @@ public class PlaneQualityFilter : MonoBehaviour
             if (!(p.alignment == PlaneAlignment.Vertical)) return false;
         }
 
-        // tilt gate (additional strictness)
         var n = p.transform.up;
         float tilt = 0f;
         if (preferredMode == PlaneDetectionMode.Horizontal)
@@ -263,18 +237,15 @@ public class PlaneQualityFilter : MonoBehaviour
         }
         else if (preferredMode == PlaneDetectionMode.Vertical)
         {
-            // angle from vertical is angle from plane normal to world-forward directions;
-            // simplest: angle to up, then map to deviation from 90°
+
             float toUp = Vector3.Angle(n, Vector3.up);
             tilt = Mathf.Abs(90f - toUp);
         }
         if (tilt > maxNormalTiltDeg) return false;
 
-        // distance gate
         float d = Vector3.Distance(arCamera ? arCamera.transform.position : Vector3.zero, p.transform.position);
         if (d < minDistance || d > maxDistance) return false;
 
-        // age & area & stability gates
         if (!_info.TryGetValue(p.trackableId, out var inf)) return false;
 
         double age = now - inf.firstSeen;
@@ -328,13 +299,11 @@ public class PlaneQualityFilter : MonoBehaviour
         if (mr) mr.enabled = false;
     }
 
-    // Compute planar polygon area from ARPlane.boundary (in plane local space)
     static float ComputeArea(ARPlane p)
     {
         var b = p.boundary;
         if (!b.IsCreated || b.Length < 3) return 0f;
 
-        // Shoelace formula on (x,z) since boundary is in plane local coordinates (x,z)
         double sum = 0.0;
         for (int i = 0; i < b.Length; i++)
         {
@@ -345,7 +314,6 @@ public class PlaneQualityFilter : MonoBehaviour
     }
 }
 
-/// Simple list pool to avoid LINQ/alloc in Update (tiny helper).
 static class ListPool<T>
 {
     static readonly Stack<List<T>> pool = new();

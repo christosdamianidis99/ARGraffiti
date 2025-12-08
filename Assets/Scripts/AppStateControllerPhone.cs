@@ -12,37 +12,37 @@ public enum Phase { Idle, Scanning, PlaneSelected, Painting, Gallery }
 public class AppStateControllerPhone : MonoBehaviour
 {
     [Header("AR")]
-    public ARSession arSession;                 // (assign) AR Session in scene
-    public ARPlaneManager planeManager;         // (assign) on XR Origin
-    public ARRaycastManager raycaster;          // (assign) on XR Origin
-    public ARAnchorManager anchorManager;       // (assign) on XR Origin
-    public ARCameraManager cameraManager;       // (assign) on Main Camera
-    public ReticleDot reticle;                  // (assign) on XR Origin
-    public PhonePainter painter;                // (assign) on XR Origin
+    public ARSession arSession;                 
+    public ARPlaneManager planeManager;         
+    public ARRaycastManager raycaster;          
+    public ARAnchorManager anchorManager;       
+    public ARCameraManager cameraManager;       
+    public ReticleDot reticle;                  
+    public PhonePainter painter;                
 
     [Header("UI")]
-    public Button btnScan;                      // Panel_Top/Button_Scan
-    public Button btnSelectSurface;             // Panel_Top/Button_SelectSurface
-    public Button btnGraffiti;                  // Panel_Top/Button_Graffiti
-    public Button btnSave;                      // Panel_Top/Button_Save (positioned at top-right)
-    public Button btnColorPalette;              // Panel_Graffiti/Button_ColorPalette
-    public Button btnPaintBrush;                // Panel_Graffiti/Button_PaintBrush
-    public Button btnGallery;                   // Panel_Graffiti/Button_Gallery (positioned to the left of btnPaintBrush)
-    public Button btnUndo;                      // Panel_Top/Button_Undo (same position as btnSelectSurface)
-    public Button btnRedo;                      // Panel_Top/Button_Redo (same position as btnSelectSurface)
-    public GameObject panelTop;                 // Panel_Top
-    public GameObject panelTools;               // Panel_Tools
-    public GameObject panelGraffiti;            // Panel_Graffiti
-    public TMPro.TMP_Text txtTips;              // optional tips label
-    public float notificationSeconds = 2f;      // how long to keep save notification visible
+    public Button btnScan;                      
+    public Button btnSelectSurface;             
+    public Button btnGraffiti;                  
+    public Button btnSave;                      
+    public Button btnColorPalette;              
+    public Button btnPaintBrush;                
+    public Button btnGallery;                   
+    public Button btnUndo;                      
+    public Button btnRedo;                      
+    public GameObject panelTop;                 
+    public GameObject panelTools;               
+    public GameObject panelGraffiti;            
+    public TMPro.TMP_Text txtTips;              
+    public float notificationSeconds = 2f;     
     [Header("Gallery UI")]
-    public GameObject panelGalleryScreen;       // optional overlay with back-only UI
-    public Button btnGalleryBack;               // back button shown only in gallery
-    public Button btnGalleryDelete;             // delete current preview
-    public GameObject galleryLoadingIndicator;  // optional spinner shown while loading
+    public GameObject panelGalleryScreen;      
+    public Button btnGalleryBack;               
+    public Button btnGalleryDelete;             
+    public GameObject galleryLoadingIndicator;  
 
     [Header("Painting")]
-    public Transform strokesRoot;               // (assign) StrokesRoot under XR Origin
+    public Transform strokesRoot;               
 
     [Header("Gallery")]
     public float galleryMaxDistanceMeters = 30f;
@@ -58,23 +58,21 @@ public class AppStateControllerPhone : MonoBehaviour
     bool _reticleWasActive;
     bool _reticleUIWasEnabled;
     GraffitiRepository _repo;
-    GraffitiData _lastSpawnedData; // track last preview for delete
+    GraffitiData _lastSpawnedData; 
 
-    // State
+  
     Phase _phase = Phase.Idle;
     ARAnchor _currentAnchor;
     bool _lastGalleryEnabled;
     string _lastGalleryOwnerEmail;
 
-    // Single-plane scanning (one plane that grows)
     ARPlane _primaryScanPlane;
     double _reticleStableStart = -1;
-    const double STABLE_DWELL_SECONDS = 0.20;   // 200 ms stability before choosing primary
-    public PlaneQualityFilter planeFilter;   // (assign) on XR Origin
+    const double STABLE_DWELL_SECONDS = 0.20;  
+    public PlaneQualityFilter planeFilter;   
 
-    // Frozen outline after selection (non-resizing)
     GameObject _frozenBorderGO;
-    public float frozenLineWidth = 0.01f;       // 1 cm
+    public float frozenLineWidth = 0.01f;     
     public Color frozenLineColor = new Color(0f, 1f, 0.8f, 0.9f);
 
     void OnEnable()
@@ -102,11 +100,9 @@ public class AppStateControllerPhone : MonoBehaviour
             CoroutineRunner.Run(ButtonClickFeedback(btnSelectSurface));
             SelectSurfaceUnderReticle();
         });
-        // btnGraffiti now uses the GraffitiButtonLongPress component to handle long press events
-        // btnGraffiti.onClick.AddListener(ToggleGraffiti); // Removed, using long press instead
+
         btnSave.onClick.AddListener(Save);
 
-        // Bind ColorPalette button to toggle tool panel
         if (btnColorPalette != null)
         {
                 btnColorPalette.onClick.AddListener(() => {
@@ -116,7 +112,6 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         else
         {
-            // Try to find by name if not assigned
             GameObject colorPaletteObj = GameObject.Find("Button_ColorPalette");
             if (colorPaletteObj != null)
             {
@@ -131,17 +126,13 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Position save button at top-right of panelTop
         PositionSaveButtonAtTopRight();
 
-        // Initially hide save button - will show when surface is selected
         if (btnSave) btnSave.gameObject.SetActive(false);
 
-        // Initially hide select_surface button, will show after clicking scan
         if (btnSelectSurface)
         {
             btnSelectSurface.gameObject.SetActive(false);
-            // Make btnSelectSurface the same size as btnScan
             if (btnScan)
             {
                 RectTransform scanRect = btnScan.GetComponent<RectTransform>();
@@ -153,16 +144,13 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Initialize Undo/Redo buttons - same position as select_surface button, hidden by default
         InitializeUndoRedoButtons();
 
-        // Initialize Gallery button - positioned to the left of brush button
         InitializeGalleryButton();
         InitializeGalleryScreen();
 
         SetPhase(Phase.Idle);
 
-        // At runtime, set background colors transparent; backgrounds only visible in editor
         HidePanelBackgroundsInRuntime();
 
         if (painter)
@@ -175,10 +163,8 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void HidePanelBackgroundsInRuntime()
     {
-        // Only execute at runtime
         if (!Application.isPlaying) return;
 
-        // At runtime, set Panel_Graffiti background to transparent; only visible in editor
         GameObject graffitiPanel = panelGraffiti != null ? panelGraffiti : GameObject.Find("Panel_Graffiti");
         if (graffitiPanel != null)
         {
@@ -186,12 +172,11 @@ public class AppStateControllerPhone : MonoBehaviour
             if (image != null)
             {
                 var color = image.color;
-                color.a = 0f;  // Make fully transparent
+                color.a = 0f;  
                 image.color = color;
             }
         }
 
-        // At runtime, set Panel_Top background to transparent; only visible in editor
         GameObject topPanel = panelTop != null ? panelTop : GameObject.Find("Panel_Top");
         if (topPanel != null)
         {
@@ -199,13 +184,12 @@ public class AppStateControllerPhone : MonoBehaviour
             if (image != null)
             {
                 var color = image.color;
-                color.a = 0f;  // Make fully transparent
+                color.a = 0f;  
                 image.color = color;
             }
         }
     }
 
-    // Button click feedback animation with gray out and dazzle effect
     IEnumerator ButtonClickFeedback(Button btn)
     {
         if (!btn) yield break;
@@ -217,7 +201,6 @@ public class AppStateControllerPhone : MonoBehaviour
             yield break;
         }
 
-        // Get Image component for color change
         Image btnImage = btn.GetComponent<Image>();
         Color originalColor = Color.white;
         if (btnImage != null)
@@ -226,10 +209,9 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
         Vector3 originalScale = rect.localScale;
-        Vector3 pressedScale = originalScale * 0.75f;  // Shrink to 75% for more obvious feedback
-        float duration = 0.2f;  // Animation duration
+        Vector3 pressedScale = originalScale * 0.75f;  
+        float duration = 0.2f;  
 
-        // Phase 1: Press-in effect with gray out
         float elapsed = 0f;
         float pressDuration = duration * 0.3f;
         while (elapsed < pressDuration)
@@ -238,7 +220,6 @@ public class AppStateControllerPhone : MonoBehaviour
             float t = Mathf.Clamp01(elapsed / pressDuration);
             rect.localScale = Vector3.Lerp(originalScale, pressedScale, t);
 
-            // Gray out effect (reduce brightness)
             if (btnImage != null)
             {
                 Color grayColor = Color.Lerp(originalColor, originalColor * 0.5f, t);
@@ -247,15 +228,13 @@ public class AppStateControllerPhone : MonoBehaviour
             yield return null;
         }
 
-        // Phase 2: Dazzle effect (bright flash)
         elapsed = 0f;
         float dazzleDuration = duration * 0.2f;
-        Color dazzleColor = originalColor * 1.5f; // Bright white flash
+        Color dazzleColor = originalColor * 1.5f; 
         while (elapsed < dazzleDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / dazzleDuration);
-            // Flash from gray to bright white
             if (btnImage != null)
             {
                 Color flashColor = Color.Lerp(originalColor * 0.5f, dazzleColor, Mathf.Sin(t * Mathf.PI));
@@ -264,19 +243,16 @@ public class AppStateControllerPhone : MonoBehaviour
             yield return null;
         }
 
-        // Phase 3: Restore with bounce
         elapsed = 0f;
         float bounceDuration = duration * 0.5f;
-        Vector3 bounceScale = originalScale * 1.1f;  // Bounce to 110%
+        Vector3 bounceScale = originalScale * 1.1f; 
         while (elapsed < bounceDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / bounceDuration);
-            // Smooth bounce using easing
-            float bounceT = 1f - Mathf.Pow(1f - t, 3f); // Ease out cubic
+            float bounceT = 1f - Mathf.Pow(1f - t, 3f); 
             rect.localScale = Vector3.Lerp(pressedScale, bounceScale, bounceT);
 
-            // Restore color
             if (btnImage != null)
             {
                 Color restoreColor = Color.Lerp(dazzleColor, originalColor, bounceT);
@@ -285,7 +261,6 @@ public class AppStateControllerPhone : MonoBehaviour
             yield return null;
         }
 
-        // Phase 4: Final settle
         elapsed = 0f;
         float settleDuration = duration * 0.3f;
         while (elapsed < settleDuration)
@@ -296,7 +271,6 @@ public class AppStateControllerPhone : MonoBehaviour
             yield return null;
         }
 
-        // Ensure final state
         rect.localScale = originalScale;
         if (btnImage != null)
         {
@@ -348,7 +322,6 @@ public class AppStateControllerPhone : MonoBehaviour
         if (arSession) arSession.Reset();
         yield return null;
 
-        // Wait briefly for tracking to return so plane detection starts from a stable pose
         yield return WaitForTrackingReady(3f);
 
         SetPhase(Phase.Scanning);
@@ -389,15 +362,11 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         _phase = p;
 
-        // UI defaults
-        // Note: panelTools visibility is now controlled by ToggleToolPanel(), 
-        // so we don't force it to false here. It will be shown/hidden based on user interaction.
-        // Only set to false when transitioning to Idle or Scanning phases
+
         if (p == Phase.Idle || p == Phase.Scanning)
         {
             if (panelTools) panelTools.SetActive(false);
         }
-        // Save button is positioned at top-right of panelTop
         btnSelectSurface.interactable = false;
         btnGraffiti.interactable = false;
 
@@ -406,15 +375,12 @@ public class AppStateControllerPhone : MonoBehaviour
             case Phase.Idle:
                 if (planeManager)
                 {
-                    planeManager.enabled = true; // keep tracking alive
+                    planeManager.enabled = true; 
                     planeManager.requestedDetectionMode = PlaneDetectionMode.None;
                 }
                 TogglePlaneMesh(false);
-                // Hide select_surface button in Idle phase
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
-                // Hide Undo/Redo buttons in Idle phase
                 UpdateUndoRedoButtonsVisibility();
-                // Hide save button in Idle phase
                 if (btnSave) btnSave.gameObject.SetActive(false);
                 SetTip("Press Scan to detect a surface.");
                 break;
@@ -423,33 +389,29 @@ public class AppStateControllerPhone : MonoBehaviour
                 if (planeManager) planeManager.enabled = true;
                 _primaryScanPlane = null;
                 _reticleStableStart = -1;
-                // Show all planes immediately when entering scanning phase
                 TogglePlaneMesh(true);
-                // Don't show select_surface button immediately - wait for plane detection in Update()
+
                 if (btnSelectSurface)
                 {
                     btnSelectSurface.gameObject.SetActive(false);
                 }
-                // Hide Undo/Redo buttons in Scanning phase
+
                 UpdateUndoRedoButtonsVisibility();
-                // Hide save button in Scanning phase
+
                 if (btnSave) btnSave.gameObject.SetActive(false);
                 SetTip("Move phone. Center dot turns green over a surface.");
                 break;
 
             case Phase.PlaneSelected:
-                planeManager.requestedDetectionMode = PlaneDetectionMode.None; // stop growth
+                planeManager.requestedDetectionMode = PlaneDetectionMode.None; 
 
                 ShowOnlySelectedPlaneMesh();
-                BuildFrozenBorder();      // show frozen outline
-                // Panel_Tools is now controlled by ToggleToolPanel() - don't auto-show
-                // if (panelTools) panelTools.SetActive(true);
-                // Save button is positioned at top-right of panelTop
-                // Hide select_surface button after selecting surface
+                BuildFrozenBorder();      
+                
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
-                // Update Undo/Redo buttons visibility - show only if graffiti exists
+                
                 UpdateUndoRedoButtonsVisibility();
-                // Show save button only if there's graffiti
+                
                 UpdateSaveButtonVisibility();
                 btnGraffiti.interactable = true;
                 SetTip("Press Graffiti to start/stop painting.");
@@ -465,11 +427,11 @@ public class AppStateControllerPhone : MonoBehaviour
                 SetTip("Graffiti ON. Keep the dot on the surface and move the phone.");
                 break;
             case Phase.Gallery:
-                TogglePlaneMesh(false); // hide plane visuals in gallery
+                TogglePlaneMesh(false);
                 if (btnSelectSurface) btnSelectSurface.gameObject.SetActive(false);
                 if (btnUndo) btnUndo.gameObject.SetActive(false);
                 if (btnRedo) btnRedo.gameObject.SetActive(false);
-                if (reticle && reticle.reticleUI) reticle.reticleUI.enabled = false; // hide visual only
+                if (reticle && reticle.reticleUI) reticle.reticleUI.enabled = false; 
                 if (painter) painter.StopPainting();
                 SetTip("Loading gallery...");
                 break;
@@ -482,7 +444,7 @@ public class AppStateControllerPhone : MonoBehaviour
     {
         UpdateGalleryButtonState();
 
-        // Update save button and undo/redo buttons visibility when surface is selected
+        
         if (_phase == Phase.PlaneSelected || _phase == Phase.Painting)
         {
             UpdateSaveButtonVisibility();
@@ -491,10 +453,10 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (_phase != Phase.Scanning) return;
 
-        // In Scanning phase, ensure undo/redo buttons are hidden (no surface selected yet)
+        
         UpdateUndoRedoButtonsVisibility();
 
-        // Show/hide select_surface button based on plane detection
+        
         if (btnSelectSurface)
         {
             bool hasPlane = false;
@@ -503,12 +465,12 @@ public class AppStateControllerPhone : MonoBehaviour
             else
                 hasPlane = reticle && reticle.isOverAnyPlane;
 
-            // Show button only when plane is detected
+        
             if (hasPlane && !btnSelectSurface.gameObject.activeSelf)
             {
                 btnSelectSurface.gameObject.SetActive(true);
                 btnSelectSurface.interactable = true;
-                // Ensure button can receive raycasts
+        
                 Image btnImage = btnSelectSurface.GetComponent<Image>();
                 if (btnImage != null)
                 {
@@ -517,21 +479,20 @@ public class AppStateControllerPhone : MonoBehaviour
             }
             else if (!hasPlane && btnSelectSurface.gameObject.activeSelf)
             {
-                // Hide button if plane is lost
+        
                 btnSelectSurface.gameObject.SetActive(false);
             }
             else if (hasPlane && btnSelectSurface.gameObject.activeSelf)
             {
-                // Keep button enabled when plane is available
+        
                 btnSelectSurface.interactable = true;
             }
         }
 
-        //if (_phase != Phase.Scanning || reticle == null) return;
+        
 
 
 
-        // Choose ONE primary plane after a short stable dwell
         if (_primaryScanPlane == null)
         {
             if (planeFilter && planeFilter.PrimaryIsStable())
@@ -551,7 +512,6 @@ public class AppStateControllerPhone : MonoBehaviour
                 {
                     _primaryScanPlane = GetRootPlane(reticle.planeUnderReticle);
 
-                    // Reduce noise: restrict detection to this alignment
                     var align = _primaryScanPlane.alignment;
                     planeManager.requestedDetectionMode =
                         (align == PlaneAlignment.HorizontalUp || align == PlaneAlignment.HorizontalDown)
@@ -562,12 +522,11 @@ public class AppStateControllerPhone : MonoBehaviour
             }
             else
             {
-                _reticleStableStart = -1; // lost hit → reset dwell
+                _reticleStableStart = -1; 
             }
         }
         else
         {
-            // Keep following merges (subsumed) to avoid flicker
             var root = GetRootPlane(_primaryScanPlane);
             if (root != _primaryScanPlane)
             {
@@ -585,8 +544,6 @@ public class AppStateControllerPhone : MonoBehaviour
         ARPlane plane = null;
         if (planeFilter && planeFilter.PrimaryIsStable())
             plane = planeFilter.PrimaryPlane;
-
-        // Fallback: reticle plane if filter not ready
         if (!plane && reticle) plane = reticle.planeUnderReticle;
         if (!plane) return;
 
@@ -595,7 +552,6 @@ public class AppStateControllerPhone : MonoBehaviour
 
 
 
-        // Anchor at the last center-hit pose for stability
         DestroyAnchorIfAny();
         if (anchorManager && raycaster)
         {
@@ -610,7 +566,6 @@ public class AppStateControllerPhone : MonoBehaviour
             planeManager.requestedDetectionMode = PlaneDetectionMode.None;
         ShowOnlySelectedPlaneMesh();
 
-        // Snapshot border now & pass anchor root to painter
         var boundary = CopyBoundary(plane);
         var anchorRoot = _currentAnchor ? _currentAnchor.transform : null;
         if (painter)
@@ -628,9 +583,7 @@ public class AppStateControllerPhone : MonoBehaviour
         else if (_phase == Phase.PlaneSelected) { SetPhase(Phase.Painting); }
     }
 
-    /// <summary>
-    /// Start graffiti (called by long press button)
-    /// </summary>
+
     public void StartGraffiti()
     {
         if (_phase == Phase.PlaneSelected)
@@ -639,24 +592,18 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Stop graffiti (called when button is released)
-    /// </summary>
     public void StopGraffiti()
     {
         if (_phase == Phase.Painting)
         {
             painter.StopPainting();
             SetPhase(Phase.PlaneSelected);
-            // Update save button and undo/redo buttons visibility after stopping graffiti
             UpdateSaveButtonVisibility();
             UpdateUndoRedoButtonsVisibility();
         }
     }
 
-    /// <summary>
-    /// Position the save button at the top-right corner of panelTop using HorizontalLayoutGroup spacing
-    /// </summary>
+
     void PositionSaveButtonAtTopRight()
     {
         if (!btnSave || !panelTop) return;
@@ -666,14 +613,12 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (!panelRect || !buttonRect) return;
 
-        // Ensure button ignores layout to position independently
         var layoutElement = btnSave.GetComponent<UnityEngine.UI.LayoutElement>();
         if (layoutElement != null)
         {
             layoutElement.ignoreLayout = true;
         }
 
-        // Sync size with scan button
         if (btnScan)
         {
             RectTransform scanRect = btnScan.GetComponent<RectTransform>();
@@ -683,12 +628,11 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Anchor to the right edge and align Y with the scan button
         buttonRect.anchorMin = new Vector2(1f, 0.5f);
         buttonRect.anchorMax = new Vector2(1f, 0.5f);
         buttonRect.pivot = new Vector2(1f, 0.5f);
 
-        float offsetX = -30f;  // margin from the right edge
+        float offsetX = -30f;  
         float offsetY = 0f;
         if (btnScan)
         {
@@ -701,23 +645,18 @@ public class AppStateControllerPhone : MonoBehaviour
         Canvas.ForceUpdateCanvases();
     }
 
-    /// <summary>
-    /// Update save button visibility - show when surface is selected
-    /// </summary>
+
     void UpdateSaveButtonVisibility()
     {
         if (!btnSave) return;
 
-        // Show save button when surface is selected (Phase.PlaneSelected or Phase.Painting)
-        // No need to check for graffiti - button is available once surface is fixed
+
         bool surfaceSelected = (_phase == Phase.PlaneSelected || _phase == Phase.Painting);
 
         btnSave.gameObject.SetActive(surfaceSelected);
     }
 
-    /// <summary>
-    /// Check if there are any graffiti strokes on the surface
-    /// </summary>
+ 
     bool HasGraffitiStrokes()
     {
         if (painter)
@@ -759,7 +698,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     string CurrentOwnerEmail()
     {
-        return string.Empty; // local-only
+        return string.Empty; 
     }
 
     void EnsureRepository()
@@ -783,9 +722,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void OpenGallery()
     {
-        // Treat an in-flight build as "open" so a second tap cancels cleanly
-        // instead of queueing another coroutine and leaving the UI in a weird
-        // state when the user quickly toggles the gallery button.
+
         if (_galleryVisible || _galleryRoutine != null)
         {
             HideGalleryPreviews();
@@ -803,7 +740,7 @@ public class AppStateControllerPhone : MonoBehaviour
             yield break;
         }
 
-        yield return null; // allow UI feedback frame
+        yield return null; 
 
         if (!painter.TryCaptureStrokeTexture(out var snapshot, out var boundsWorld))
         {
@@ -841,7 +778,7 @@ public class AppStateControllerPhone : MonoBehaviour
         Quaternion rotation = poseSource ? poseSource.rotation : Quaternion.identity;
         Vector3 position = boundsWorld.center;
 
-        // Compute width/height in the plane's tangent space so vertical walls scale correctly.
+        
         Vector3 planeRight = rotation * Vector3.right;
         Vector3 planeForward = rotation * Vector3.forward;
         Vector3 ext = boundsWorld.extents;
@@ -869,20 +806,13 @@ public class AppStateControllerPhone : MonoBehaviour
 
         UpdateGalleryButtonState();
         ShowNotification("Saved! Restarting scan...");
-        // Reset to a fresh scan so the main screen is ready.
+        
         CoroutineRunner.Run(RescanRoutine());
     }
 
     public void ShowGalleryInAR(bool forceCreateAnchors = true)
     {
         Debug.Log("[Gallery] Request to show gallery");
-
-        // Avoid hiding the UI or changing AR configuration when tracking
-        // is paused. Previously we would enter Gallery mode, hide controls,
-        // and then wait for tracking to recover inside the coroutine. On
-        // devices where tracking never resumed, that left the camera feed
-        // frozen with no way to exit. Bail out early instead and let the
-        // user know they need to move the device to restore tracking.
         if (ARSession.state != ARSessionState.SessionTracking)
         {
             SetTip("Move phone to resume tracking before opening gallery.");
@@ -902,7 +832,7 @@ public class AppStateControllerPhone : MonoBehaviour
         EnsureCameraFeedActive();
         StopGalleryRoutine();
         
-        // Ensure buttons are initialized before showing gallery
+        
         if (!btnGalleryBack || !btnGalleryDelete)
         {
             Debug.Log("[Gallery] Buttons not initialized, calling InitializeGalleryScreen...");
@@ -913,7 +843,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         if (painter)
             painter.StopPainting();
-        TogglePlaneMesh(false); // hide planes in gallery view
+        TogglePlaneMesh(false); 
         ClearGalleryPreviews();
 
         SetPhase(Phase.Gallery);
@@ -973,8 +903,7 @@ public class AppStateControllerPhone : MonoBehaviour
         RestoreGalleryUI();
         ShowGalleryScreen(false);
 
-        // Return to the phase we were in before opening the gallery, so controls and
-        // plane detection resume instead of leaving the experience idle.
+        
         switch (_phaseBeforeGallery)
         {
             case Phase.Scanning:
@@ -998,8 +927,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutine(string ownerEmail, bool forceCreateAnchors)
     {
-        // Wrap the implementation so any exception stops the routine cleanly without
-        // violating the C# restriction on using "yield" inside try/catch blocks.
+        
         System.Exception fatalError = null;
         var impl = BuildGalleryRoutineImpl(ownerEmail, forceCreateAnchors);
 
@@ -1034,9 +962,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     IEnumerator BuildGalleryRoutineImpl(string ownerEmail, bool forceCreateAnchors)
     {
-        // Ensure AR tracking is active before we try to place anchors. If tracking is
-        // paused (e.g., app just resumed), building now could leave previews at
-        // stale poses.
+        
         EnsureCameraFeedActive();
         yield return WaitForTrackingReady(3f);
 
@@ -1077,8 +1003,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         Debug.Log($"[Gallery] Building {items.Count} previews (forceCreateAnchors={forceCreateAnchors})");
 
-        // Make the routine resilient so we never leave the app stuck in Gallery
-        // mode if something unexpected happens while spawning previews.
+        
         System.Exception failure = null;
 
         bool createAnchors = forceCreateAnchors && anchorManager != null;
@@ -1129,7 +1054,7 @@ public class AppStateControllerPhone : MonoBehaviour
                 break;
             }
 
-            // Spread work across frames so the UI never freezes when many entries exist.
+        
             yield return null;
         }
 
@@ -1190,12 +1115,8 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.LogWarning("[Gallery] No ARAnchorManager available to create anchors.");
             return null;
         }
-
-        // Prefer the ARAnchorManager APIs so anchors remain tracked by the subsystem.
         ARAnchor anchor = null;
-
-        // Handle ARFoundation 6 signatures that return bool via out parameter as
-        // well as older return-value signatures.
+       
         var methods = anchorManager.GetType().GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
         foreach (var method in methods)
         {
@@ -1234,9 +1155,6 @@ public class AppStateControllerPhone : MonoBehaviour
             return anchor;
         }
 
-        // Fallback: manual GameObject to avoid hard failure when AddAnchor is not
-        // supported on the current platform/configuration. This still keeps the
-        // preview transform in the right place relative to the session origin.
         var go = new GameObject("WorldAnchor");
         go.transform.SetPositionAndRotation(pose.position, pose.rotation);
         go.transform.SetParent(anchorManager.transform, worldPositionStays: true);
@@ -1264,7 +1182,6 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void EnsureCameraFeedActive()
     {
-        // Guarantee the camera stream stays alive while we toggle gallery UI.
         if (cameraManager)
         {
             var cam = cameraManager.GetComponent<Camera>();
@@ -1288,9 +1205,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (planeManager)
         {
             planeManager.enabled = true;
-            // Stop plane detection during gallery mode so no new planes appear.
+     
             planeManager.requestedDetectionMode = PlaneDetectionMode.None;
-            TogglePlaneMesh(false); // hide any existing plane visuals
+            TogglePlaneMesh(false);
         }
 
         if (reticle)
@@ -1319,7 +1236,7 @@ public class AppStateControllerPhone : MonoBehaviour
     void HideUIForGallery(GameObject go)
     {
         if (!go) return;
-        // Never disable camera/session roots by accident.
+       
         if (go.GetComponent<Camera>() || go.GetComponent<ARSession>() || go.GetComponent<ARSessionOrigin>())
             return;
 
@@ -1402,7 +1319,7 @@ public class AppStateControllerPhone : MonoBehaviour
         {
             var bytes = File.ReadAllBytes(path);
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
-            tex.LoadImage(bytes, markNonReadable: true); // free CPU-side copy for perf
+            tex.LoadImage(bytes, markNonReadable: true); 
             return tex;
         }
         catch (Exception ex)
@@ -1438,8 +1355,7 @@ public class AppStateControllerPhone : MonoBehaviour
         var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GraffitiPreview_" + data.id;
 
-        // Match the paint layer so the AR camera culling mask always renders the
-        // previews even if the default layer is hidden in the scene.
+        
         if (painter && painter.strokesRoot)
             quad.layer = painter.strokesRoot.gameObject.layer;
 
@@ -1460,7 +1376,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (!parent)
             parent = _currentAnchor ? _currentAnchor.transform : (painter && painter.lockedPlane ? painter.lockedPlane.transform : null);
 
-        // Anchor-backed placement for stability.
+        
         if (anchor && anchor.transform)
         {
             quad.transform.SetParent(anchor.transform, false);
@@ -1478,8 +1394,7 @@ public class AppStateControllerPhone : MonoBehaviour
         var targetScale = data.localScale == Vector3.zero ? Vector3.one : data.localScale;
         quad.transform.localScale = targetScale;
 
-        // If no anchor could be created, at least add an ARAnchor component so tracking can
-        // stabilize the transform when possible.
+        
         if (!anchor && anchorManager && !quad.GetComponent<ARAnchor>())
             quad.AddComponent<ARAnchor>();
 
@@ -1487,7 +1402,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         var mr = quad.GetComponent<MeshRenderer>();
 
-        // Remove collider so previews never block raycasts/painting.
+        
         var collider = quad.GetComponent<Collider>();
         if (collider) Destroy(collider);
 
@@ -1498,7 +1413,7 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         else
         {
-            // Build a resilient fallback so we never crash if a shader is stripped on device builds.
+       
             string[] shaderNames =
             {
                 "Unlit/Texture",
@@ -1529,7 +1444,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (mat)
         {
             mat.mainTexture = texture;
-            // Favor double-sided unlit so the preview is always visible and lit correctly.
+       
             if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
             if (mat.HasProperty("_EmissionColor"))
             {
@@ -1547,9 +1462,7 @@ public class AppStateControllerPhone : MonoBehaviour
         return quad;
     }
 
-    /// <summary>
-    /// Initialize Undo/Redo buttons - ensure they are properly configured
-    /// </summary>
+   
     void InitializeUndoRedoButtons()
     {
         if (!btnSelectSurface)
@@ -1565,7 +1478,6 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
-        // Find undo button if not assigned
         if (!btnUndo)
         {
             GameObject topPanel = panelTop != null ? panelTop : GameObject.Find("Panel_Top");
@@ -1587,7 +1499,6 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Find redo button if not assigned
         if (!btnRedo)
         {
             GameObject topPanel = panelTop != null ? panelTop : GameObject.Find("Panel_Top");
@@ -1609,13 +1520,11 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Button size and spacing
-        // Use actual size from selectRect, or fallback to default size if 0 (when using HorizontalLayoutGroup)
         float buttonWidth = selectRect.sizeDelta.x > 0 ? selectRect.sizeDelta.x : 512f;
         float buttonHeight = selectRect.sizeDelta.y > 0 ? selectRect.sizeDelta.y : 80f;
-        float spacing = 40f; // Spacing between buttons
+        float spacing = 40f; 
 
-        // Get Panel_Top (parent) rect to calculate center position
+
         RectTransform parentRect = selectRect.parent as RectTransform;
         if (parentRect == null)
         {
@@ -1623,8 +1532,7 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
-        // Get scan button's Y position for horizontal alignment
-        // Since all buttons are in the same Panel_Top, they should use the same Y coordinate
+        
         float centerY = 0f;
         if (btnScan)
         {
@@ -1636,17 +1544,12 @@ public class AppStateControllerPhone : MonoBehaviour
         }
         else
         {
-            // Fallback: use select_surface button's Y position
             centerY = selectRect.anchoredPosition.y;
         }
-
-        // Calculate center position where select_surface_btn will be
-        // select_surface_btn uses left-bottom anchor (0, 0) and is centered by HorizontalLayoutGroup
-        // Since buttons use left-bottom anchor, the center position is where the button's left edge should be
+        
         float panelWidth = parentRect.rect.width;
         float selectSurfaceLeftEdge = (panelWidth - buttonWidth) * 0.5f;
 
-        // Get scan button's anchor settings for alignment
         Vector2 buttonAnchorMin = selectRect.anchorMin;
         Vector2 buttonAnchorMax = selectRect.anchorMax;
         Vector2 buttonPivot = selectRect.pivot;
@@ -1666,7 +1569,7 @@ public class AppStateControllerPhone : MonoBehaviour
             RectTransform undoRect = btnUndo.GetComponent<RectTransform>();
             if (undoRect)
             {
-                // Disable HorizontalLayoutGroup influence on undo button
+
                 UnityEngine.UI.LayoutElement layoutElement = btnUndo.GetComponent<UnityEngine.UI.LayoutElement>();
                 if (layoutElement == null)
                 {
@@ -1674,33 +1577,32 @@ public class AppStateControllerPhone : MonoBehaviour
                 }
                 layoutElement.ignoreLayout = true;
 
-                // Use same anchor as scan button for horizontal alignment
+
                 undoRect.anchorMin = buttonAnchorMin;
                 undoRect.anchorMax = buttonAnchorMax;
                 undoRect.pivot = buttonPivot;
 
-                // Ensure size matches select_surface button
+
                 undoRect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
 
-                // Position: to the left of select_surface_btn
-                // Undo button left edge should be at: select_surface left edge - buttonWidth - spacing
+
                 undoRect.anchoredPosition = new Vector2(
                     selectSurfaceLeftEdge - buttonWidth - spacing,
                     centerY
                 );
 
-                // Set icon if not already set (runtime fallback)
+
                 Image undoImage = btnUndo.GetComponent<Image>();
                 if (undoImage != null && undoImage.sprite == null)
                 {
                     SetButtonIcon(btnUndo, "undo");
                 }
 
-                // Ensure button is interactable (not grayed out)
+
                 btnUndo.interactable = true;
 
-                // Bind click event with same animation effect as scan button
-                btnUndo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
+
+                btnUndo.onClick.RemoveAllListeners();
                 btnUndo.onClick.AddListener(() => {
                     CoroutineRunner.Run(ButtonClickFeedback(btnUndo));
                     HandleUndoAction();
@@ -1727,7 +1629,7 @@ public class AppStateControllerPhone : MonoBehaviour
             RectTransform redoRect = btnRedo.GetComponent<RectTransform>();
             if (redoRect)
             {
-                // Disable HorizontalLayoutGroup influence on redo button
+                
                 UnityEngine.UI.LayoutElement layoutElement = btnRedo.GetComponent<UnityEngine.UI.LayoutElement>();
                 if (layoutElement == null)
                 {
@@ -1735,34 +1637,32 @@ public class AppStateControllerPhone : MonoBehaviour
                 }
                 layoutElement.ignoreLayout = true;
 
-                // Use same anchor as scan button for horizontal alignment
+                
                 redoRect.anchorMin = buttonAnchorMin;
                 redoRect.anchorMax = buttonAnchorMax;
                 redoRect.pivot = buttonPivot;
 
-                // Ensure size matches select_surface button
+                
                 redoRect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
 
-                // Position: to the right of select_surface_btn
-                // Redo button left edge should be at: select_surface right edge + spacing
-                // select_surface right edge = select_surface left edge + buttonWidth
+               
                 redoRect.anchoredPosition = new Vector2(
                     selectSurfaceLeftEdge + buttonWidth + spacing,
                     centerY
                 );
 
-                // Set icon if not already set (runtime fallback)
+               
                 Image redoImage = btnRedo.GetComponent<Image>();
                 if (redoImage != null && redoImage.sprite == null)
                 {
                     SetButtonIcon(btnRedo, "redo");
                 }
 
-                // Ensure button is interactable (not grayed out)
+               
                 btnRedo.interactable = true;
 
-                // Bind click event with same animation effect as scan button
-                btnRedo.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
+               
+                btnRedo.onClick.RemoveAllListeners(); 
                 btnRedo.onClick.AddListener(() => {
                     CoroutineRunner.Run(ButtonClickFeedback(btnRedo));
                     HandleRedoAction();
@@ -1785,12 +1685,9 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Initialize Gallery button - positioned to the left of brush button, same style and size
-    /// </summary>
     void InitializeGalleryButton()
     {
-        // Find paintbrush button if not assigned
+
         if (!btnPaintBrush && panelGraffiti)
         {
             Transform brushTransform = panelGraffiti.transform.Find("Button_PaintBrush");
@@ -1813,7 +1710,7 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
-        // Find gallery button if not assigned
+
         if (!btnGallery && panelGraffiti)
         {
             Transform galleryTransform = panelGraffiti.transform.Find("Button_Gallery");
@@ -1836,58 +1733,54 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
-        // Set anchor to left-center (same as brush button)
         galleryRect.anchorMin = new Vector2(0f, 0.5f);
         galleryRect.anchorMax = new Vector2(0f, 0.5f);
         galleryRect.pivot = new Vector2(0.5f, 0.5f);
         galleryRect.sizeDelta = brushRect.sizeDelta;
 
-        // Position at the leftmost position
-        // Get parent panel width to calculate margin
+        
         RectTransform parentRect = panelGraffiti != null ? panelGraffiti.GetComponent<RectTransform>() : null;
         float panelWidth = parentRect != null ? parentRect.rect.width : 0f;
 
-        // Use same margin calculation as PanelGraffitiLayout
-        float minMarginPercent = 0.03f; // 3% of screen width
-        float buttonSize = brushRect.sizeDelta.x;
-        float minMargin = panelWidth > 0 ? panelWidth * minMarginPercent : 30f; // Fallback to 30px if width is 0
 
-        // Position gallery button at the leftmost position
-        // Position = left margin + button width / 2
+        float minMarginPercent = 0.03f; 
+        float buttonSize = brushRect.sizeDelta.x;
+        float minMargin = panelWidth > 0 ? panelWidth * minMarginPercent : 30f;
+
+
         galleryRect.anchoredPosition = new Vector2(
             minMargin + buttonSize * 0.5f,
             0f
         );
 
-        // Set icon (gallery.png) if not already set
         Image galleryImage = btnGallery.GetComponent<Image>();
         if (galleryImage != null && galleryImage.sprite == null)
         {
             SetButtonIcon(btnGallery, "gallery");
         }
 
-        // Bind click event
-        btnGallery.onClick.RemoveAllListeners(); // Remove existing listeners to avoid duplicates
+        
+        btnGallery.onClick.RemoveAllListeners();
         btnGallery.onClick.AddListener(() => {
             CoroutineRunner.Run(ButtonClickFeedback(btnGallery));
             OpenGallery();
         });
 
-        btnGallery.interactable = false; // enabled when data exists
+        btnGallery.interactable = false;
     }
 
     void InitializeGalleryScreen()
     {
         Debug.Log("[Gallery] InitializeGalleryScreen called");
         
-        // Try to find Panel_Gallery in the scene (including inactive objects)
+        
         if (!panelGalleryScreen)
         {
-            // GameObject.Find only finds active objects, so search all objects
+        
             GameObject go = GameObject.Find("Panel_Gallery");
             if (go == null)
             {
-                // Search in all GameObjects including inactive ones
+        
                 var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
                 foreach (var obj in allObjects)
                 {
@@ -1910,7 +1803,7 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
         
-        // If still not found, create it dynamically (fallback)
+        
         if (!panelGalleryScreen)
         {
             Debug.Log("[Gallery] Creating Panel_Gallery dynamically...");
@@ -1937,8 +1830,7 @@ public class AppStateControllerPhone : MonoBehaviour
             }
         }
 
-        // Set icons for buttons if they exist (pre-created in Editor)
-        // Look for Icon child GameObject (like scan button structure)
+        
         if (btnGalleryBack)
         {
             var backIcon = btnGalleryBack.transform.Find("Icon")?.GetComponent<Image>();
@@ -1947,7 +1839,7 @@ public class AppStateControllerPhone : MonoBehaviour
             {
                 SetButtonIconOnImage(backIcon, "back");
                 Debug.Log($"[Gallery] Set icon for Button_Back, Icon sprite: {backIcon.sprite?.name ?? "null"}, Icon active: {backIcon.gameObject.activeSelf}");
-                // Hide Text if Icon exists (like scan button style - icon only)
+        
                 if (backText != null)
                 {
                     backText.gameObject.SetActive(false);
@@ -1968,7 +1860,7 @@ public class AppStateControllerPhone : MonoBehaviour
             {
                 SetButtonIconOnImage(delIcon, "bin");
                 Debug.Log($"[Gallery] Set icon for Button_Delete, Icon sprite: {delIcon.sprite?.name ?? "null"}, Icon active: {delIcon.gameObject.activeSelf}");
-                // Hide Text if Icon exists (like scan button style - icon only)
+        
                 if (delText != null)
                 {
                     delText.gameObject.SetActive(false);
@@ -2007,7 +1899,7 @@ public class AppStateControllerPhone : MonoBehaviour
             });
         }
 
-        // Hide overlay by default until gallery is opened
+        
         ShowGalleryScreen(false);
     }
 
@@ -2028,7 +1920,7 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.Log($"[Gallery] Button_Delete set to active: {visible}, Parent: {btnGalleryDelete.transform.parent?.name}");
         }
 
-        SetGalleryLoading(visible); // default to loading spinner when opening
+        SetGalleryLoading(visible);
     }
 
     void SetGalleryLoading(bool loading)
@@ -2039,8 +1931,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
     GameObject BuildRuntimeGalleryPanel()
     {
-        // Create a minimal overlay so the gallery can work even if the scene
-        // forgot to wire the panel.
+        
         Transform parent = panelTop ? panelTop.transform.parent : null;
         if (parent == null)
         {
@@ -2048,12 +1939,11 @@ public class AppStateControllerPhone : MonoBehaviour
             if (canvas) parent = canvas.transform;
         }
 
-        // Check if Panel_Gallery already exists (pre-created in Editor)
-        // Search including inactive objects
+        
         GameObject existingPanel = GameObject.Find("Panel_Gallery");
         if (existingPanel == null)
         {
-            // Search in all GameObjects including inactive ones
+        
             var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
             foreach (var obj in allObjects)
             {
@@ -2068,7 +1958,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (existingPanel != null)
         {
             Debug.Log($"[Gallery] Using existing Panel_Gallery: {existingPanel.name}, Active: {existingPanel.activeSelf}, Scene: {existingPanel.scene.name}, Parent: {existingPanel.transform.parent?.name ?? "None"}");
-            // Use existing panel and find buttons
+        
             var existingBack = existingPanel.transform.Find("Button_Back");
             var existingDel = existingPanel.transform.Find("Button_Delete");
             var existingLoading = existingPanel.transform.Find("Loading");
@@ -2077,11 +1967,11 @@ public class AppStateControllerPhone : MonoBehaviour
             {
                 Debug.Log($"[Gallery] Found Button_Back in existing panel: {existingBack.name}, Has Icon: {existingBack.Find("Icon") != null}, Has Text: {existingBack.Find("Text") != null}");
                 btnGalleryBack = existingBack.GetComponent<Button>();
-                // 设置透明背景
+               
                 var existingBackImg = existingBack.GetComponent<Image>();
                 if (existingBackImg != null)
                 {
-                    existingBackImg.color = new Color(1f, 1f, 1f, 0f); // 透明背景
+                    existingBackImg.color = new Color(1f, 1f, 1f, 0f); 
                 }
                 if (btnGalleryBack != null)
                 {
@@ -2102,11 +1992,11 @@ public class AppStateControllerPhone : MonoBehaviour
             {
                 Debug.Log($"[Gallery] Found Button_Delete in existing panel: {existingDel.name}, Has Icon: {existingDel.Find("Icon") != null}, Has Text: {existingDel.Find("Text") != null}");
                 btnGalleryDelete = existingDel.GetComponent<Button>();
-                // 设置透明背景
+                
                 var existingDelImg = existingDel.GetComponent<Image>();
                 if (existingDelImg != null)
                 {
-                    existingDelImg.color = new Color(0.9f, 0.2f, 0.2f, 0f); // 透明背景
+                    existingDelImg.color = new Color(0.9f, 0.2f, 0.2f, 0f); 
                 }
                 if (btnGalleryDelete != null)
                 {
@@ -2135,7 +2025,7 @@ public class AppStateControllerPhone : MonoBehaviour
             Debug.Log("[Gallery] Panel_Gallery not found, creating dynamically");
         }
 
-        // Fallback: Create panel dynamically if not found
+        
         var panel = new GameObject("Panel_Gallery", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         var rt = panel.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero;
@@ -2145,9 +2035,9 @@ public class AppStateControllerPhone : MonoBehaviour
         if (parent) panel.transform.SetParent(parent, false);
 
         var img = panel.GetComponent<Image>();
-        img.color = new Color(0f, 0f, 0f, 0.35f); // slight dim
+        img.color = new Color(0f, 0f, 0f, 0.35f); 
 
-        // Back button
+        
         var back = new GameObject("Button_Back", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         var backRt = back.GetComponent<RectTransform>();
         backRt.sizeDelta = new Vector2(200f, 80f);
@@ -2158,7 +2048,7 @@ public class AppStateControllerPhone : MonoBehaviour
         back.transform.SetParent(panel.transform, false);
 
         var backImg = back.GetComponent<Image>();
-        backImg.color = new Color(1f, 1f, 1f, 0f); // 透明背景
+        backImg.color = new Color(1f, 1f, 1f, 0f);
         backImg.type = Image.Type.Simple;
         backImg.preserveAspect = false;
         backImg.useSpriteMesh = false;
@@ -2176,7 +2066,7 @@ public class AppStateControllerPhone : MonoBehaviour
         backTextRt.offsetMin = Vector2.zero;
         backTextRt.offsetMax = Vector2.zero;
 
-        // Create Icon child GameObject for back button
+     
         var backIconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         var backIconRt = backIconGO.GetComponent<RectTransform>();
         backIconRt.SetParent(back.transform, false);
@@ -2189,10 +2079,10 @@ public class AppStateControllerPhone : MonoBehaviour
         backIconImg.type = Image.Type.Simple;
         backIconImg.useSpriteMesh = true;
         backIconImg.preserveAspect = true;
-        // Hide Text, show Icon only
+        
         backTextGO.SetActive(false);
 
-        // Loading indicator
+     
         var loading = new GameObject("Loading", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
         var loadingRt = loading.GetComponent<RectTransform>();
         loadingRt.anchorMin = new Vector2(0.5f, 0.5f);
@@ -2210,7 +2100,7 @@ public class AppStateControllerPhone : MonoBehaviour
         panel.SetActive(false);
         galleryLoadingIndicator = loading;
         btnGalleryBack = back.GetComponent<Button>();
-        // Set icon for back button Icon child
+     
         var backIconImage = back.transform.Find("Icon")?.GetComponent<Image>();
         if (backIconImage != null)
         {
@@ -2223,7 +2113,7 @@ public class AppStateControllerPhone : MonoBehaviour
             HideGalleryPreviews();
         });
 
-        // Delete button
+     
         var del = new GameObject("Button_Delete", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         var delRt = del.GetComponent<RectTransform>();
         delRt.sizeDelta = new Vector2(200f, 80f);
@@ -2233,7 +2123,7 @@ public class AppStateControllerPhone : MonoBehaviour
         delRt.anchoredPosition = new Vector2(-40f, -40f);
         del.transform.SetParent(panel.transform, false);
         var delImg = del.GetComponent<Image>();
-        delImg.color = new Color(0.9f, 0.2f, 0.2f, 0f); // 透明背景
+        delImg.color = new Color(0.9f, 0.2f, 0.2f, 0f);
         delImg.type = Image.Type.Simple;
         delImg.preserveAspect = false;
         delImg.useSpriteMesh = false;
@@ -2251,7 +2141,7 @@ public class AppStateControllerPhone : MonoBehaviour
         delTextRt.offsetMin = Vector2.zero;
         delTextRt.offsetMax = Vector2.zero;
 
-        // Create Icon child GameObject for delete button
+     
         var delIconGO = new GameObject("Icon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         var delIconRt = delIconGO.GetComponent<RectTransform>();
         delIconRt.SetParent(del.transform, false);
@@ -2264,11 +2154,11 @@ public class AppStateControllerPhone : MonoBehaviour
         delIconImg.type = Image.Type.Simple;
         delIconImg.useSpriteMesh = true;
         delIconImg.preserveAspect = true;
-        // Hide Text, show Icon only
+        
         delTextGO.SetActive(false);
 
         btnGalleryDelete = del.GetComponent<Button>();
-        // Set icon for delete button Icon child
+        
         var delIconImage = del.transform.Find("Icon")?.GetComponent<Image>();
         if (delIconImage != null)
         {
@@ -2284,9 +2174,7 @@ public class AppStateControllerPhone : MonoBehaviour
         return panel;
     }
 
-    /// <summary>
-    /// Set button icon from texture file
-    /// </summary>
+    
     void SetButtonIcon(Button button, string iconName)
     {
         if (!button) return;
@@ -2298,10 +2186,10 @@ public class AppStateControllerPhone : MonoBehaviour
             return;
         }
 
-        // Try loading from Resources folder first (runtime)
+    
         Sprite sprite = Resources.Load<Sprite>($"Textures/{iconName}");
 
-        // If not found in Resources, try loading as Texture2D and convert to Sprite
+    
         if (sprite == null)
         {
             Texture2D texture = Resources.Load<Texture2D>($"Textures/{iconName}");
@@ -2316,14 +2204,14 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
 #if UNITY_EDITOR
-        // Try loading directly from Assets path (editor only)
+    
         if (sprite == null)
         {
             string assetPath = $"Assets/Textures/{iconName}.png";
             sprite = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
             if (sprite == null)
             {
-                // Try loading as Texture2D and convert
+    
                 Texture2D texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
                 if (texture != null)
                 {
@@ -2343,7 +2231,7 @@ public class AppStateControllerPhone : MonoBehaviour
             buttonImage.type = Image.Type.Simple;
             buttonImage.useSpriteMesh = true;
             buttonImage.preserveAspect = true;
-            buttonImage.alphaHitTestMinimumThreshold = 0.1f; // Use icon alpha instead of a solid background
+            buttonImage.alphaHitTestMinimumThreshold = 0.1f; 
         }
         else
         {
@@ -2351,17 +2239,14 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Set icon sprite directly on an Image component (for Icon child GameObject)
-    /// </summary>
-    void SetButtonIconOnImage(Image image, string iconName)
+        void SetButtonIconOnImage(Image image, string iconName)
     {
         if (!image) return;
 
-        // Try loading from Resources folder first (runtime)
+   
         Sprite sprite = Resources.Load<Sprite>($"Textures/{iconName}");
 
-        // If not found in Resources, try loading as Texture2D and convert to Sprite
+   
         if (sprite == null)
         {
             Texture2D texture = Resources.Load<Texture2D>($"Textures/{iconName}");
@@ -2376,14 +2261,14 @@ public class AppStateControllerPhone : MonoBehaviour
         }
 
 #if UNITY_EDITOR
-        // Try loading directly from Assets path (editor only)
+        
         if (sprite == null)
         {
             string assetPath = $"Assets/Textures/{iconName}.png";
             sprite = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
             if (sprite == null)
             {
-                // Try loading as Texture2D and convert
+        
                 Texture2D texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
                 if (texture != null)
                 {
@@ -2412,13 +2297,6 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Update Undo/Redo buttons visibility and interactable state - show when:
-    /// 1. Surface is selected (Phase.PlaneSelected or Phase.Painting) AND graffiti exists
-    /// 2. OR when actively painting (Phase.Painting) - show immediately when starting to paint
-    /// Hide when: no surface selected or no graffiti exists
-    /// Buttons are enabled/disabled based on whether there are strokes to undo/redo
-    /// </summary>
     void UpdateUndoRedoButtonsVisibility()
     {
         bool shouldShow = false;
@@ -2485,26 +2363,23 @@ public class AppStateControllerPhone : MonoBehaviour
         UpdateUndoRedoButtonsVisibility();
     }
 
-    /// <summary>
-    /// Toggle the visibility of Panel_Tools when ColorPalette button is clicked
-    /// </summary>
+    
     public void ToggleToolPanel()
     {
         if (panelTools != null)
         {
-            // Toggle visibility: if currently active, hide it; if hidden, show it
+    
             bool isCurrentlyActive = panelTools.activeSelf;
             panelTools.SetActive(!isCurrentlyActive);
         }
         else
         {
-            // Try to find Panel_Tools by name if not assigned
             GameObject toolsObj = GameObject.Find("Panel_Tools");
             if (toolsObj != null)
             {
                 bool isCurrentlyActive = toolsObj.activeSelf;
                 toolsObj.SetActive(!isCurrentlyActive);
-                panelTools = toolsObj; // Cache the reference
+                panelTools = toolsObj; 
             }
         }
     }
@@ -2517,7 +2392,7 @@ public class AppStateControllerPhone : MonoBehaviour
         if (_primaryScanPlane)
             ShowOnlyPlane(_primaryScanPlane);
         else
-            TogglePlaneMesh(true); // before primary: show all detected planes
+            TogglePlaneMesh(true); 
     }
 
     ARPlane GetRootPlane(ARPlane p)
@@ -2576,11 +2451,11 @@ public class AppStateControllerPhone : MonoBehaviour
         }
     }
 
-    // Build a non-resizing outline (LineRenderer) from the snapshot boundary
+    
     void BuildFrozenBorder()
     {
         DestroyFrozenBorder();
-        var plane = reticle.selectedPlane; // The plane data is still needed
+        var plane = reticle.selectedPlane;
         if (!plane) return;
 
         var boundary = CopyBoundary(plane);
@@ -2588,40 +2463,40 @@ public class AppStateControllerPhone : MonoBehaviour
 
         _frozenBorderGO = new GameObject("FrozenPlaneBorder");
 
-        // Parent to the anchor if it exists
+        
         Transform parentTransform = _currentAnchor ? _currentAnchor.transform : plane.transform;
         _frozenBorderGO.transform.SetParent(parentTransform, worldPositionStays: false);
 
-        // If parenting to the anchor, set the local position/rotation
+        
         if (_currentAnchor)
         {
-            // Get world poses
+        
             Pose planePoseInWorld = new Pose(plane.transform.position, plane.transform.rotation);
             Pose anchorPoseInWorld = new Pose(_currentAnchor.transform.position, _currentAnchor.transform.rotation);
 
-            // Calculate inverse of anchor pose MANUALLY
+        
             Quaternion invAnchorRot = Quaternion.Inverse(anchorPoseInWorld.rotation);
             Vector3 invAnchorPos = invAnchorRot * -anchorPoseInWorld.position;
             Pose inverseAnchorPose = new Pose(invAnchorPos, invAnchorRot);
 
-            // Now transform the plane's world pose into the anchor's local space
-            Pose planePoseInAnchorSpace = inverseAnchorPose.Multiply(planePoseInWorld); // PoseUtils.Multiply equivalent
+        
+            Pose planePoseInAnchorSpace = inverseAnchorPose.Multiply(planePoseInWorld); 
 
             _frozenBorderGO.transform.localPosition = planePoseInAnchorSpace.position;
             _frozenBorderGO.transform.localRotation = planePoseInAnchorSpace.rotation;
         }
-        // If not parenting to anchor (fallback), no local adjustment needed as it's directly under plane
+        
 
         var lr = _frozenBorderGO.AddComponent<LineRenderer>();
-        lr.useWorldSpace = false; // Points are relative to the parent
+        lr.useWorldSpace = false;
         lr.loop = true;
         lr.widthMultiplier = frozenLineWidth;
 
-        // Use a default material or load one (as suggested previously)
-        lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit")); // Or load your M_Border_Unlit
+        
+        lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit")); 
         lr.material.color = frozenLineColor;
 
-        // Add start/end color keys for consistent color (optional but good practice)
+        
         var gradient = new Gradient();
         gradient.SetKeys(
             new GradientColorKey[] { new GradientColorKey(frozenLineColor, 0.0f), new GradientColorKey(frozenLineColor, 1.0f) },
@@ -2632,7 +2507,7 @@ public class AppStateControllerPhone : MonoBehaviour
 
         lr.positionCount = boundary.Length;
         for (int i = 0; i < boundary.Length; i++)
-            // Points are relative to the plane's local coords, now the GO's local coords
+        
             lr.SetPosition(i, new Vector3(boundary[i].x, 0f, boundary[i].y));
     }
 
@@ -2673,22 +2548,22 @@ public class AppStateControllerPhone : MonoBehaviour
 
     void StyleGraffitiButton(bool on)
     {
-        // Option 1: Still tint Image (simple)
+        
         var img = btnGraffiti.GetComponent<Image>();
-        if (img) img.color = on ? new Color(0.08f, 0.8f, 0.4f, 0.9f) : new Color(1f, 1f, 1f, 0.25f); // Keep your colors or adjust
+        if (img) img.color = on ? new Color(0.08f, 0.8f, 0.4f, 0.9f) : new Color(1f, 1f, 1f, 0.25f); 
 
-        // Option 2: Change Text (as before)
+        
         var txt = btnGraffiti.GetComponentInChildren<TMPro.TMP_Text>();
         if (txt) txt.text = on ? "Graffiti (ON)" : "Graffiti";
 
-        // Option 3: Trigger Animation (if using Animator transition)
+        
         var animator = btnGraffiti.GetComponent<Animator>();
         if (animator)
         {
-            // Assumes you have Boolean parameters named "IsOn" or similar in your Animator Controller
+        
             animator.SetBool("IsOn", on);
-            // Or trigger specific states
-            // animator.Play(on ? "GraffitiOnState" : "GraffitiOffState");
+        
+     
         }
     }
 }

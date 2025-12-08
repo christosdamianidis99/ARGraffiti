@@ -1,10 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// Handles click events for shape buttons (Button_Square and Button_Circle)
-/// Sets graffiti shape and hides PanelGraffitiOptions on click
-/// </summary>
+
 public class ShapeButtonHandler : MonoBehaviour
 {
     [Header("References")]
@@ -20,7 +17,6 @@ public class ShapeButtonHandler : MonoBehaviour
 
     void Start()
     {
-        // Find PhonePainter if not assigned
         if (painter == null)
         {
             painter = FindFirstObjectByType<PhonePainter>();
@@ -30,10 +26,8 @@ public class ShapeButtonHandler : MonoBehaviour
             }
         }
         
-        // Find PanelGraffitiOptions if not assigned
         if (panelGraffitiOptions == null)
         {
-            // First try to find in parent hierarchy (under Button_Graffiti)
             Transform parent = transform.parent;
             while (parent != null)
             {
@@ -46,13 +40,11 @@ public class ShapeButtonHandler : MonoBehaviour
                 parent = parent.parent;
             }
             
-            // If not found, try searching the entire scene
             if (panelGraffitiOptions == null)
             {
                 panelGraffitiOptions = GameObject.Find("PanelGraffitiOptions");
                 if (panelGraffitiOptions == null)
                 {
-                    // Compatible with old names
                     panelGraffitiOptions = GameObject.Find("GraffitiOptionsPanel");
                     if (panelGraffitiOptions == null)
                     {
@@ -62,14 +54,11 @@ public class ShapeButtonHandler : MonoBehaviour
             }
         }
         
-        // Bind button click event
         Button button = GetComponent<Button>();
         if (button != null)
         {
-            // Ensure button is interactable
             button.interactable = true;
             
-            // Ensure Image can receive raycast
             Image buttonImage = GetComponent<Image>();
             if (buttonImage != null)
             {
@@ -85,15 +74,11 @@ public class ShapeButtonHandler : MonoBehaviour
             Debug.LogWarning($"ShapeButtonHandler ({gameObject.name}): Button component not found!");
         }
     }
-    
-    /// <summary>
-    /// Handle button click event
-    /// </summary>
+
     public void OnButtonClick()
     {
         Debug.Log($"ShapeButtonHandler ({gameObject.name}): Button clicked!");
         
-        // Set graffiti shape
         if (painter != null)
         {
             if (isSquareShape)
@@ -112,7 +97,6 @@ public class ShapeButtonHandler : MonoBehaviour
             Debug.LogError($"ShapeButtonHandler ({gameObject.name}): PhonePainter is null, cannot set shape!");
         }
         
-        // Hide PanelGraffitiOptions
         if (panelGraffitiOptions != null)
         {
             panelGraffitiOptions.SetActive(false);
@@ -123,10 +107,7 @@ public class ShapeButtonHandler : MonoBehaviour
             Debug.LogWarning($"ShapeButtonHandler ({gameObject.name}): PanelGraffitiOptions not found!");
         }
     }
-    
-    /// <summary>
-    /// Manually trigger click (for testing)
-    /// </summary>
+
     public void TriggerClick()
     {
         OnButtonClick();

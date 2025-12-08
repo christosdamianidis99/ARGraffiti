@@ -3,10 +3,7 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using System.Collections;
 
-/// <summary>
-/// Handles long press events and scaling animations for Graffiti button.
-/// Long press to start graffiti, release to stop graffiti.
-/// </summary>
+
 public class GraffitiButtonLongPress : MonoBehaviour
 {
     [Header("Settings")]
@@ -43,28 +40,28 @@ public class GraffitiButtonLongPress : MonoBehaviour
         }
         originalScale = rectTransform.localScale;
 
-        // Ensure Image can receive raycasts
+        
         var image = GetComponent<Image>();
         if (image != null)
         {
             image.raycastTarget = true;
         }
 
-        // Ensure button can receive events
+        
         var button = GetComponent<Button>();
         if (button != null)
         {
-            // Ensure button is interactable
+        
             button.interactable = true;
             
-            // Disable Button onClick as we use EventTrigger instead
+        
             button.onClick.RemoveAllListeners();
         }
     }
 
     void Start()
     {
-        // Find AppStateControllerPhone in Start (could be not initialized in Awake)
+       
         if (appStateController == null)
         {
             appStateController = FindFirstObjectByType<AppStateControllerPhone>();
@@ -74,7 +71,7 @@ public class GraffitiButtonLongPress : MonoBehaviour
             }
         }
 
-        // Find PhonePainter to set shape
+       
         if (painter == null)
         {
             painter = FindFirstObjectByType<PhonePainter>();
@@ -84,11 +81,9 @@ public class GraffitiButtonLongPress : MonoBehaviour
             }
         }
         
-        // Find PanelGraffitiOptions if not assigned
-        // Priority: find child object first, then search entire scene
+
         if (panelGraffitiOptions == null)
         {
-            // First try to find child object
             Transform childPanel = transform.Find("PanelGraffitiOptions");
             if (childPanel != null)
             {
@@ -96,7 +91,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             }
             else
             {
-                // If not found in child, search entire scene (compatible with old names)
                 panelGraffitiOptions = GameObject.Find("PanelGraffitiOptions");
                 if (panelGraffitiOptions == null)
                 {
@@ -113,41 +107,34 @@ public class GraffitiButtonLongPress : MonoBehaviour
             }
         }
         
-        // Initially hide the panel
         if (panelGraffitiOptions != null)
         {
             panelGraffitiOptions.SetActive(false);
         }
 
-        // Set up EventTrigger
         SetupEventTrigger();
     }
 
     void SetupEventTrigger()
     {
-        // Get or add EventTrigger component
         EventTrigger trigger = GetComponent<EventTrigger>();
         if (trigger == null)
         {
             trigger = gameObject.AddComponent<EventTrigger>();
         }
 
-        // Clear existing events
         trigger.triggers.Clear();
 
-        // Add PointerDown event
         EventTrigger.Entry pointerDownEntry = new EventTrigger.Entry();
         pointerDownEntry.eventID = EventTriggerType.PointerDown;
         pointerDownEntry.callback.AddListener((data) => { OnPointerDown((PointerEventData)data); });
         trigger.triggers.Add(pointerDownEntry);
 
-        // Add PointerUp event
         EventTrigger.Entry pointerUpEntry = new EventTrigger.Entry();
         pointerUpEntry.eventID = EventTriggerType.PointerUp;
         pointerUpEntry.callback.AddListener((data) => { OnPointerUp((PointerEventData)data); });
         trigger.triggers.Add(pointerUpEntry);
 
-        // Add PointerExit event
         EventTrigger.Entry pointerExitEntry = new EventTrigger.Entry();
         pointerExitEntry.eventID = EventTriggerType.PointerExit;
         pointerExitEntry.callback.AddListener((data) => { OnPointerExit((PointerEventData)data); });
@@ -168,16 +155,13 @@ public class GraffitiButtonLongPress : MonoBehaviour
         hasLongPressed = false;
         pointerDownTime = Time.time;
 
-        // Immediately start scale animation (do not wait for coroutine)
         if (scaleCoroutine != null)
         {
             StopCoroutine(scaleCoroutine);
         }
-        // Reset to original scale before animating to target scale
         rectTransform.localScale = originalScale;
         scaleCoroutine = StartCoroutine(ScaleAnimation(pressScale));
 
-        // Start long press detection
         if (longPressCoroutine != null)
         {
             StopCoroutine(longPressCoroutine);
@@ -189,14 +173,12 @@ public class GraffitiButtonLongPress : MonoBehaviour
     {
         isPressed = false;
 
-        // Stop long press detection
         if (longPressCoroutine != null)
         {
             StopCoroutine(longPressCoroutine);
             longPressCoroutine = null;
         }
 
-        // Calculate press duration
         float pressDuration = Time.time - pointerDownTime;
 
         if (isLongPressTriggered && appStateController != null)
@@ -209,14 +191,11 @@ public class GraffitiButtonLongPress : MonoBehaviour
             {
                 painter.SetShapeCircle();
             }
-            // Toggle panel visibility (similar to ColorPalette button)
             TogglePanelGraffitiOptions();
-            // Start enhanced click feedback
             StartCoroutine(EnhancedClickFeedback());
         }
         else
         {
-            // Restore scale for long press
             if (scaleCoroutine != null)
             {
                 StopCoroutine(scaleCoroutine);
@@ -230,7 +209,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        // Treat pointer exit as pointer up (consider as release)
         if (isPressed)
         {
             OnPointerUp(eventData);
@@ -267,7 +245,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / scaleAnimationDuration);
-            // Use easing function for smoother animation
             t = Mathf.SmoothStep(0f, 1f, t);
             rectTransform.localScale = Vector3.Lerp(startScale, endScale, t);
             yield return null;
@@ -280,12 +257,10 @@ public class GraffitiButtonLongPress : MonoBehaviour
         scaleCoroutine = null;
     }
 
-    // Enhanced click feedback with gray out and dazzle effect
     IEnumerator EnhancedClickFeedback()
     {
         if (rectTransform == null) yield break;
 
-        // Get Image component for color change
         Image btnImage = GetComponent<Image>();
         Color originalColor = Color.white;
         if (btnImage != null)
@@ -297,7 +272,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
         Vector3 pressedScale = originalScale * 0.75f;
         float duration = 0.2f;
 
-        // Phase 1: Press-in effect with gray out
         float elapsed = 0f;
         float pressDuration = duration * 0.3f;
         while (elapsed < pressDuration)
@@ -306,7 +280,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             float t = Mathf.Clamp01(elapsed / pressDuration);
             rectTransform.localScale = Vector3.Lerp(currentScale, pressedScale, t);
             
-            // Gray out effect
             if (btnImage != null)
             {
                 Color grayColor = Color.Lerp(originalColor, originalColor * 0.5f, t);
@@ -315,7 +288,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             yield return null;
         }
 
-        // Phase 2: Dazzle effect
         elapsed = 0f;
         float dazzleDuration = duration * 0.2f;
         Color dazzleColor = originalColor * 1.5f;
@@ -331,7 +303,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             yield return null;
         }
 
-        // Phase 3: Restore with bounce
         elapsed = 0f;
         float bounceDuration = duration * 0.5f;
         Vector3 bounceScale = originalScale * 1.1f;
@@ -350,7 +321,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             yield return null;
         }
 
-        // Phase 4: Final settle
         elapsed = 0f;
         float settleDuration = duration * 0.3f;
         while (elapsed < settleDuration)
@@ -361,7 +331,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
             yield return null;
         }
 
-        // Ensure final state
         rectTransform.localScale = originalScale;
         if (btnImage != null)
         {
@@ -371,7 +340,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
 
     void OnDisable()
     {
-        // Restore to original state when disabled
         if (rectTransform != null)
         {
             rectTransform.localScale = originalScale;
@@ -390,20 +358,16 @@ public class GraffitiButtonLongPress : MonoBehaviour
         }
     }
     
-    /// <summary>
-    /// Toggle PanelGraffitiOptions visibility (similar to ColorPalette button's ToggleToolPanel)
-    /// </summary>
+
     void TogglePanelGraffitiOptions()
     {
         if (panelGraffitiOptions != null)
         {
-            // Toggle visibility: hide if currently active, show if hidden
             bool isCurrentlyActive = panelGraffitiOptions.activeSelf;
             panelGraffitiOptions.SetActive(!isCurrentlyActive);
         }
         else
         {
-            // If not assigned, try to find by name (prioritize child objects)
             Transform childPanel = transform.Find("PanelGraffitiOptions");
             GameObject optionsObj = null;
             if (childPanel != null)
@@ -415,7 +379,6 @@ public class GraffitiButtonLongPress : MonoBehaviour
                 optionsObj = GameObject.Find("PanelGraffitiOptions");
                 if (optionsObj == null)
                 {
-                    // Compatible with old names
                     optionsObj = GameObject.Find("GraffitiOptionsPanel");
                     if (optionsObj == null)
                     {
@@ -428,7 +391,7 @@ public class GraffitiButtonLongPress : MonoBehaviour
             {
                 bool isCurrentlyActive = optionsObj.activeSelf;
                 optionsObj.SetActive(!isCurrentlyActive);
-                panelGraffitiOptions = optionsObj; // Cache reference
+                panelGraffitiOptions = optionsObj; 
             }
         }
     }

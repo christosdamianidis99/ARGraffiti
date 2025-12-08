@@ -4,27 +4,27 @@ using UnityEngine;
 [Serializable]
 public class GraffitiData
 {
-    public string id;                 // GUID
-    public string title;              // optional (you can leave empty)
-    public string pngPath;            // absolute path to PNG
-    public string thumbPath;          // optional thumbnail
+    public string id;                
+    public string title;    
+    public string pngPath;            
+    public string thumbPath;
     public long createdUtcTicks;
 
-    // Owner info (Google account)
+    
     public string ownerEmail;
     public string ownerName;
 
-    // Local AR pose (Unity world) saved at capture time
+    
     public Vector3 position;
     public Quaternion rotation;
     public Vector3 localScale = Vector3.one;
 
-    // Optional geospatial fields (use if ARCore Extensions present)
+    
     public bool hasGeospatial;
     public double latitude;
     public double longitude;
     public double altitude;
-    public double heading;           // compass/heading if available
+    public double heading;           
     public float horizontalAccMeters;
     public float verticalAccMeters;
 

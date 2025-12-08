@@ -14,7 +14,6 @@ public class PlaneBorderVisualizer : MonoBehaviour
 
     void Start()
     {
-        // draw once immediately
         OnBoundary(default);
     }
 

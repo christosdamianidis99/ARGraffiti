@@ -32,7 +32,7 @@ public class GraffitiRepository : MonoBehaviour
             _items.Clear();
             if (wrapper != null && wrapper.items != null) _items.AddRange(wrapper.items);
         }
-        catch { /* ignore corrupt */ }
+        catch {}
     }
 
     void SaveIndex()
@@ -79,7 +79,7 @@ public class GraffitiRepository : MonoBehaviour
                 if (!string.IsNullOrEmpty(data.thumbPath) && File.Exists(data.thumbPath))
                     File.Delete(data.thumbPath);
             }
-            catch { /* ignore */ }
+            catch { }
             _items.RemoveAll(x => x.id == id);
             SaveIndex();
         }
